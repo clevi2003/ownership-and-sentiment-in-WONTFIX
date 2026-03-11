@@ -1,3 +1,38 @@
+# project specific
+# Logs
+logs/
+*.log
+
+# Data outputs
+data/raw/
+data/processed/
+data/linked/
+data/features/
+data/final/
+
+# Top-level project output folders, if used
+processed/
+linked/
+features/
+final/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Parquet / local exports
+*.parquet
+
+# Gzip/json exports from pipeline
+*.json.gz
+
+# CSV outputs from pipeline
+repo_candidates.csv
+repo_list.csv
+repos_with_wontfix_issue.csv
+wontfix_issue_search_runs.csv
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

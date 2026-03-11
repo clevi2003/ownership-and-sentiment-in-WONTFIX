@@ -1,0 +1,365 @@
+study:
+  name: "wontfix-ownership-sentiment-study"
+  description: "A study on how code ownership and issue discussion sentiment impact wontfix labeling"
+  version: "0.1.0"
+  semester: "Spring 2026"
+  date: "2026-03-11"
+  notes:
+    - "This config defines discovery, extraction, normalization, and linkage rules."
+    - "Any change that affects the study sample should increment the version."
+
+paths:
+  project_root: "."
+  data_root: "./data"
+  raw_root: "./data/raw"
+  processed_root: "./data/processed"
+  linked_root: "./data/linked"
+  features_root: "./data/features"
+  final_root: "./data/final"
+  logs_root: "./logs"
+  config_root: "./config"
+
+github:
+  api_base_url: "https://api.github.com"
+  use_rest_api: true
+  use_graphql_api: false
+  auth:
+    use_token: true
+    token_env_var: "GITHUB_TOKEN"
+  pagination:
+    per_page: 100
+  rate_limit:
+    enable_backoff: true
+    min_remaining_before_pause: 5
+    default_pause_seconds: 15
+    respect_reset_header: true
+    max_retries: 5
+    retry_backoff_seconds: 30
+  requests:
+    timeout_seconds: 60
+    user_agent: "wontfix-study-pipeline"
+
+study_windows:
+  repo_activity:
+    activity_cutoff_date: "2021-01-01"
+    use_last_push_date: true
+  issue_collection:
+    start_date: "2021-01-01"
+    end_date: "2025-12-31"
+    include_open_issues_after_end_date: true
+  participation_analysis:
+    start_date: "2021-01-01"
+    end_date: "2025-12-31"
+    time_window_unit: "month"
+
+repo_selection:
+  discover_repositories: true
+  inclusion_criteria:
+    visibility: "public"
+    min_stars: 10000
+    exclude_forks: true
+    exclude_archived: true
+    require_recent_activity: true
+    require_at_least_one_wontfix_issue: true
+  discovery_filters:
+    languages: []
+    owners_allowlist: []
+    owners_blocklist: []
+    # repos_allowlist: []
+    repos_allowlist:
+      - "microsoft/vscode"
+      - "facebook/react"
+    repos_blocklist: []
+  activity_definition:
+    field: "pushed_at"
+    cutoff_date: "2021-01-01"
+  archival_policy:
+    if_archive_status_unavailable: "keep_and_flag"
+  fork_policy:
+    include_mirrors: false
+  repo_status_flags:
+    track_disabled: true
+    track_archived: true
+    track_fork: true
+    track_template: true
+
+repo_discovery:
+  max_repo_search_pages: 1
+  max_issue_search_pages_per_query: 1
+  split_wontfix_issue_search_by_year: false
+  candidate_repo_limit: 10
+  final_repo_limit: 3
+
+label_normalization:
+  case_sensitive: false
+  strip_whitespace: true
+  normalize_hyphens_and_apostrophes: true
+  normalize_unicode_quotes: true
+
+  outcome_labels:
+    wontfix:
+      canonical_name: "WONTFIX"
+      variants:
+        - "wontfix"
+        - "won't fix"
+        - "wont fix"
+        - "won’t fix"
+        - "wont-fix"
+        - "won't-fix"
+        - "status: wontfix"
+        - "type: wontfix"
+      partial_match_allowed: false
+
+    invalid:
+      canonical_name: "INVALID"
+      variants:
+        - "invalid"
+        - "status: invalid"
+        - "type: invalid"
+      partial_match_allowed: false
+
+  issue_type_labels:
+    bug:
+      canonical_name: "BUG"
+      variants:
+        - "bug"
+        - "type: bug"
+        - "kind: bug"
+    feature_request:
+      canonical_name: "FEATURE_REQUEST"
+      variants:
+        - "enhancement"
+        - "feature"
+        - "feature request"
+        - "type: feature"
+        - "kind: feature"
+    documentation:
+      canonical_name: "DOCUMENTATION"
+      variants:
+        - "documentation"
+        - "docs"
+        - "type: docs"
+    question:
+      canonical_name: "QUESTION"
+      variants:
+        - "question"
+        - "support"
+        - "type: question"
+
+  helper_labels:
+    help_wanted:
+      canonical_name: "HELP_WANTED"
+      variants:
+        - "help wanted"
+        - "help-wanted"
+    good_first_issue:
+      canonical_name: "GOOD_FIRST_ISSUE"
+      variants:
+        - "good first issue"
+        - "good-first-issue"
+
+issue_selection:
+  include_issues: true
+  include_pull_requests_from_issues_endpoint: false
+  states:
+    - "open"
+    - "closed"
+  require_created_within_window: true
+  require_labels_loaded: true
+  store_issue_title: true
+  store_issue_body: true
+  store_issue_author: true
+  store_assignees: true
+  store_milestones: false
+  store_reactions: false
+  store_timeline_events: false
+  comments:
+    include_comments: true
+    include_comment_bodies: true
+    include_comment_authors: true
+    include_comment_timestamps: true
+    include_comment_reactions: false
+    preserve_comment_order: true
+
+pull_request_selection:
+  include_pull_requests: true
+  include_pr_body: true
+  include_pr_author: true
+  include_pr_state: true
+  include_pr_created_closed_merged_dates: true
+  include_pr_commits: true
+  include_pr_files: false
+  include_review_comments: false
+
+git_history_extraction:
+  enabled: true
+  clone_root: "./data/raw/git_repos"
+  clone_depth: "full"
+  use_local_git: true
+  include_full_history: true
+  history_start_date: null
+  history_end_date: null
+  extract:
+    commits: true
+    commit_message: true
+    commit_author_name: true
+    commit_author_email: true
+    commit_timestamp: true
+    parent_shas: true
+    modified_files: true
+    additions_deletions: true
+    file_change_type: true
+    renames_when_detectable: true
+
+comparison_set:
+  enabled: true
+  build_after_extraction: true
+  strategy: "matched_within_repo_time_window"
+  include_non_wontfix_issues: true
+  include_invalid_as_flagged_subgroup: true
+  include_open_issues: true
+  include_closed_non_wontfix_issues: true
+  include_pr_resolved_issues: true
+  matching_rules:
+    same_repository: true
+    same_broad_time_window: true
+    same_issue_type_if_available: true
+    max_controls_per_wontfix: 3
+
+linkage:
+  issue_pr:
+    enabled: true
+    allowed_link_sources:
+      - "explicit_github_reference"
+      - "pr_body_closes_reference"
+      - "commit_message_issue_reference"
+    confidence_levels:
+      explicit_github_reference: "high"
+      pr_body_closes_reference: "high"
+      commit_message_issue_reference: "medium"
+    keep_low_confidence_links: false
+
+  pr_commit:
+    enabled: true
+    source: "github_pr_commit_list"
+
+  issue_file:
+    enabled: true
+    allowed_link_sources:
+      - "pr_commit_chain"
+      - "issue_text_file_reference"
+    confidence_levels:
+      pr_commit_chain: "high"
+      issue_text_file_reference: "medium"
+    allow_rq_specific_missing_links: true
+    notes:
+      - "Issues without file links may still be used for RQ1 and RQ3."
+      - "RQ2 may use only issues with acceptable issue-file linkage."
+
+identity_resolution:
+  enabled: true
+  scope: "repository_local"
+  create_contributor_key: true
+  contributor_key_format: "{repo_id}::{resolved_identity}"
+  matching_priority:
+    - "github_login_exact"
+    - "normalized_name_exact"
+    - "email_exact"
+  normalized_name_rules:
+    lowercase: true
+    strip_whitespace: true
+    collapse_internal_spaces: true
+  email_rules:
+    lowercase: true
+    strip_whitespace: true
+    allow_email_for_internal_mapping_only: true
+  aggressive_fuzzy_merge: false
+  keep_unresolved_identities: true
+  store_identity_confidence: true
+
+bot_handling:
+  detect_bots: true
+  bot_name_patterns:
+    - "[bot]"
+    - "bot"
+    - "github-actions"
+    - "dependabot"
+    - "renovate"
+  exclude_bots_from_sentiment_analysis: true
+  exclude_bots_from_participation_counts: true
+  exclude_bots_from_ownership_metrics: true
+  keep_bot_rows_with_flag: true
+
+storage:
+  raw_format: "json"
+  processed_format: "parquet"
+  summary_format: "csv"
+  compression:
+    raw_json_gzip: true
+    parquet_compression: "snappy"
+  overwrite_raw: false
+  overwrite_processed: false
+  save_per_repo_raw_files: true
+  save_checkpoint_files: true
+  save_intermediate_tables: true
+
+outputs:
+  repo_candidate_list: "./data/processed/repo_candidates.csv"
+  repo_included_list: "./data/processed/repo_list.csv"
+  repositories_table: "./data/processed/repositories.parquet"
+  issues_table: "./data/processed/issues.parquet"
+  issue_comments_table: "./data/processed/issue_comments.parquet"
+  pull_requests_table: "./data/processed/pull_requests.parquet"
+  commits_table: "./data/processed/commits.parquet"
+  commit_files_table: "./data/processed/commit_files.parquet"
+  contributor_identity_table: "./data/linked/contributor_identity_map.parquet"
+  issue_pr_links_table: "./data/linked/issue_pr_links.parquet"
+  issue_file_links_table: "./data/linked/issue_file_links.parquet"
+
+checkpointing:
+  enabled: true
+  granularity: "per_repo"
+  checkpoint_dir: "./logs/checkpoints"
+  resume_from_checkpoints: true
+  write_status_after_each_page: true
+  write_status_after_each_repo: true
+
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_to_console: true
+  extraction_log_dir: "./logs/extraction"
+  normalization_log_dir: "./logs/normalization"
+  linkage_log_dir: "./logs/linkage"
+  qa_log_dir: "./logs/qa"
+
+quality_assurance:
+  enabled: true
+  checks:
+    - "duplicate_primary_keys"
+    - "missing_required_fields"
+    - "timestamp_parse_failures"
+    - "invalid_date_order"
+    - "missing_foreign_keys"
+    - "label_normalization_coverage"
+    - "issue_pr_link_coverage"
+    - "issue_file_link_coverage"
+    - "identity_resolution_coverage"
+  fail_on_critical_errors: false
+  write_summary_report: true
+  summary_report_path: "./logs/qa/qa_summary.csv"
+
+rq_scoping:
+  rq1:
+    requires_issue_comments: true
+    requires_sentiment_text: true
+    allows_missing_issue_file_links: true
+  rq2:
+    requires_git_history: true
+    requires_issue_file_links: true
+    allowed_issue_file_confidence:
+      - "high"
+      - "medium"
+  rq3:
+    requires_repo_activity_timeseries: true
+    allows_missing_issue_file_links: true
