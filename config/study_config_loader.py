@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
+from datetime import datetime
+import copy
 import yaml
 
 
@@ -7,34 +9,28 @@ class ConfigError(Exception):
     """Raised when the study config is missing required fields or is malformed."""
     pass
 
-
 def _require_dict(value, section_name):
     if not isinstance(value, dict):
         raise ConfigError(f"Expected '{section_name}' to be a dictionary, got {type(value).__name__}.")
     return value
-
 
 def _require_list(value, section_name):
     if not isinstance(value, list):
         raise ConfigError(f"Expected '{section_name}' to be a list, got {type(value).__name__}.")
     return value
 
-
 def _get_required(data, key, section_name):
     if key not in data:
         raise ConfigError(f"Missing required key '{key}' in section '{section_name}'.")
     return data[key]
 
-
 def _get_optional(data, key, default=None):
     return data.get(key, default)
-
 
 def _ensure_path_str(value, section_name, key):
     if not isinstance(value, str):
         raise ConfigError(f"Expected '{key}' in section '{section_name}' to be a string path.")
     return value
-
 
 @dataclass
 class StudyConfigSection:
@@ -44,7 +40,6 @@ class StudyConfigSection:
     semester: str
     date: str
     notes: list = field(default_factory=list)
-
 
 @dataclass
 class PathsConfig:
@@ -58,17 +53,14 @@ class PathsConfig:
     logs_root: str
     config_root: str
 
-
 @dataclass
 class AuthConfig:
     use_token: bool
     token_env_var: str
 
-
 @dataclass
 class PaginationConfig:
     per_page: int
-
 
 @dataclass
 class RateLimitConfig:
@@ -79,12 +71,10 @@ class RateLimitConfig:
     max_retries: int
     retry_backoff_seconds: int
 
-
 @dataclass
 class RequestsConfig:
     timeout_seconds: int
     user_agent: str
-
 
 @dataclass
 class GitHubConfig:
@@ -96,12 +86,10 @@ class GitHubConfig:
     rate_limit: RateLimitConfig
     requests: RequestsConfig
 
-
 @dataclass
 class RepoActivityWindowConfig:
     activity_cutoff_date: str
     use_last_push_date: bool
-
 
 @dataclass
 class IssueCollectionWindowConfig:
@@ -109,20 +97,17 @@ class IssueCollectionWindowConfig:
     end_date: str
     include_open_issues_after_end_date: bool
 
-
 @dataclass
 class ParticipationAnalysisWindowConfig:
     start_date: str
     end_date: str
     time_window_unit: str
 
-
 @dataclass
 class StudyWindowsConfig:
     repo_activity: RepoActivityWindowConfig
     issue_collection: IssueCollectionWindowConfig
     participation_analysis: ParticipationAnalysisWindowConfig
-
 
 @dataclass
 class InclusionCriteriaConfig:
@@ -133,7 +118,6 @@ class InclusionCriteriaConfig:
     require_recent_activity: bool
     require_at_least_one_wontfix_issue: bool
 
-
 @dataclass
 class DiscoveryFiltersConfig:
     languages: list = field(default_factory=list)
@@ -142,22 +126,18 @@ class DiscoveryFiltersConfig:
     repos_allowlist: list = field(default_factory=list)
     repos_blocklist: list = field(default_factory=list)
 
-
 @dataclass
 class ActivityDefinitionConfig:
     field: str
     cutoff_date: str
 
-
 @dataclass
 class ArchivalPolicyConfig:
     if_archive_status_unavailable: str
 
-
 @dataclass
 class ForkPolicyConfig:
     include_mirrors: bool
-
 
 @dataclass
 class RepoStatusFlagsConfig:
@@ -165,7 +145,6 @@ class RepoStatusFlagsConfig:
     track_archived: bool
     track_fork: bool
     track_template: bool
-
 
 @dataclass
 class RepoSelectionConfig:
@@ -177,7 +156,6 @@ class RepoSelectionConfig:
     fork_policy: ForkPolicyConfig
     repo_status_flags: RepoStatusFlagsConfig
 
-
 @dataclass
 class RepoDiscoveryConfig:
     max_repo_search_pages: int
@@ -186,25 +164,21 @@ class RepoDiscoveryConfig:
     candidate_repo_limit: int
     final_repo_limit: int
 
-
 @dataclass
 class CanonicalLabelConfig:
     canonical_name: str
     variants: list
     partial_match_allowed: bool = False
 
-
 @dataclass
 class LabelTypeConfig:
     canonical_name: str
     variants: list
 
-
 @dataclass
 class OutcomeLabelsConfig:
     wontfix: CanonicalLabelConfig
     invalid: CanonicalLabelConfig
-
 
 @dataclass
 class IssueTypeLabelsConfig:
@@ -213,12 +187,10 @@ class IssueTypeLabelsConfig:
     documentation: LabelTypeConfig
     question: LabelTypeConfig
 
-
 @dataclass
 class HelperLabelsConfig:
     help_wanted: LabelTypeConfig
     good_first_issue: LabelTypeConfig
-
 
 @dataclass
 class LabelNormalizationConfig:
@@ -230,7 +202,6 @@ class LabelNormalizationConfig:
     issue_type_labels: IssueTypeLabelsConfig
     helper_labels: HelperLabelsConfig
 
-
 @dataclass
 class IssueCommentsConfig:
     include_comments: bool
@@ -239,7 +210,6 @@ class IssueCommentsConfig:
     include_comment_timestamps: bool
     include_comment_reactions: bool
     preserve_comment_order: bool
-
 
 @dataclass
 class IssueSelectionConfig:
@@ -257,6 +227,19 @@ class IssueSelectionConfig:
     store_timeline_events: bool
     comments: IssueCommentsConfig
 
+@dataclass
+class IssueExtractionConfig:
+    enabled: bool
+    max_issue_pages_per_repo_per_state: int
+    max_comment_pages_per_issue: int
+    max_repos_per_run: int
+    resume_mode: str
+    write_repo_manifest: bool
+    fail_on_missing_repo_id: bool
+    write_batch_size: int
+    sort_before_write: bool
+    request_pause_seconds_between_repos: int
+    skip_repo_if_raw_exists: bool
 
 @dataclass
 class PullRequestSelectionConfig:
@@ -268,7 +251,6 @@ class PullRequestSelectionConfig:
     include_pr_commits: bool
     include_pr_files: bool
     include_review_comments: bool
-
 
 @dataclass
 class GitHistoryExtractFieldsConfig:
@@ -283,7 +265,6 @@ class GitHistoryExtractFieldsConfig:
     file_change_type: bool
     renames_when_detectable: bool
 
-
 @dataclass
 class GitHistoryExtractionConfig:
     enabled: bool
@@ -295,14 +276,12 @@ class GitHistoryExtractionConfig:
     history_end_date: str
     extract: GitHistoryExtractFieldsConfig
 
-
 @dataclass
 class MatchingRulesConfig:
     same_repository: bool
     same_broad_time_window: bool
     same_issue_type_if_available: bool
     max_controls_per_wontfix: int
-
 
 @dataclass
 class ComparisonSetConfig:
@@ -316,7 +295,6 @@ class ComparisonSetConfig:
     include_pr_resolved_issues: bool
     matching_rules: MatchingRulesConfig
 
-
 @dataclass
 class IssuePrLinkConfig:
     enabled: bool
@@ -324,12 +302,10 @@ class IssuePrLinkConfig:
     confidence_levels: dict
     keep_low_confidence_links: bool
 
-
 @dataclass
 class PrCommitLinkConfig:
     enabled: bool
     source: str
-
 
 @dataclass
 class IssueFileLinkConfig:
@@ -339,13 +315,11 @@ class IssueFileLinkConfig:
     allow_rq_specific_missing_links: bool
     notes: list = field(default_factory=list)
 
-
 @dataclass
 class LinkageConfig:
     issue_pr: IssuePrLinkConfig
     pr_commit: PrCommitLinkConfig
     issue_file: IssueFileLinkConfig
-
 
 @dataclass
 class NormalizedNameRulesConfig:
@@ -353,13 +327,11 @@ class NormalizedNameRulesConfig:
     strip_whitespace: bool
     collapse_internal_spaces: bool
 
-
 @dataclass
 class EmailRulesConfig:
     lowercase: bool
     strip_whitespace: bool
     allow_email_for_internal_mapping_only: bool
-
 
 @dataclass
 class IdentityResolutionConfig:
@@ -374,7 +346,6 @@ class IdentityResolutionConfig:
     keep_unresolved_identities: bool
     store_identity_confidence: bool
 
-
 @dataclass
 class BotHandlingConfig:
     detect_bots: bool
@@ -384,12 +355,10 @@ class BotHandlingConfig:
     exclude_bots_from_ownership_metrics: bool
     keep_bot_rows_with_flag: bool
 
-
 @dataclass
 class CompressionConfig:
     raw_json_gzip: bool
     parquet_compression: str
-
 
 @dataclass
 class StorageConfig:
@@ -402,7 +371,7 @@ class StorageConfig:
     save_per_repo_raw_files: bool
     save_checkpoint_files: bool
     save_intermediate_tables: bool
-
+    append_processed_batches: bool
 
 @dataclass
 class OutputsConfig:
@@ -417,7 +386,9 @@ class OutputsConfig:
     contributor_identity_table: str
     issue_pr_links_table: str
     issue_file_links_table: str
-
+    extraction_summary_csv: str
+    run_manifest_json: str
+    resolved_config_snapshot_yaml: str
 
 @dataclass
 class CheckpointingConfig:
@@ -427,7 +398,6 @@ class CheckpointingConfig:
     resume_from_checkpoints: bool
     write_status_after_each_page: bool
     write_status_after_each_repo: bool
-
 
 @dataclass
 class LoggingConfig:
@@ -439,7 +409,6 @@ class LoggingConfig:
     linkage_log_dir: str
     qa_log_dir: str
 
-
 @dataclass
 class QualityAssuranceConfig:
     enabled: bool
@@ -447,7 +416,6 @@ class QualityAssuranceConfig:
     fail_on_critical_errors: bool
     write_summary_report: bool
     summary_report_path: str
-
 
 @dataclass
 class RqScopeItemConfig:
@@ -459,13 +427,11 @@ class RqScopeItemConfig:
     allowed_issue_file_confidence: list = field(default_factory=list)
     requires_repo_activity_timeseries: bool = False
 
-
 @dataclass
 class RqScopingConfig:
     rq1: RqScopeItemConfig
     rq2: RqScopeItemConfig
     rq3: RqScopeItemConfig
-
 
 @dataclass
 class StudyConfig:
@@ -477,6 +443,7 @@ class StudyConfig:
     repo_discovery: RepoDiscoveryConfig
     label_normalization: LabelNormalizationConfig
     issue_selection: IssueSelectionConfig
+    issue_extraction: IssueExtractionConfig
     pull_request_selection: PullRequestSelectionConfig
     git_history_extraction: GitHistoryExtractionConfig
     comparison_set: ComparisonSetConfig
@@ -490,7 +457,6 @@ class StudyConfig:
     quality_assurance: QualityAssuranceConfig
     rq_scoping: RqScopingConfig
 
-
 def _parse_study(data):
     section = "study"
     d = _require_dict(_get_required(data, "study", "root"), section)
@@ -502,7 +468,6 @@ def _parse_study(data):
         date=_get_required(d, "date", section),
         notes=_get_optional(d, "notes", []),
     )
-
 
 def _parse_paths(data):
     section = "paths"
@@ -518,7 +483,6 @@ def _parse_paths(data):
         logs_root=_ensure_path_str(_get_required(d, "logs_root", section), section, "logs_root"),
         config_root=_ensure_path_str(_get_required(d, "config_root", section), section, "config_root"),
     )
-
 
 def _parse_github(data):
     section = "github"
@@ -554,7 +518,6 @@ def _parse_github(data):
         ),
     )
 
-
 def _parse_study_windows(data):
     section = "study_windows"
     d = _require_dict(_get_required(data, "study_windows", "root"), section)
@@ -579,7 +542,6 @@ def _parse_study_windows(data):
             time_window_unit=_get_required(participation_d, "time_window_unit", "study_windows.participation_analysis"),
         ),
     )
-
 
 def _parse_repo_selection(data):
     section = "repo_selection"
@@ -627,7 +589,6 @@ def _parse_repo_selection(data):
         ),
     )
 
-
 def _parse_repo_discovery(data):
     section = "repo_discovery"
     d = _require_dict(_get_required(data, "repo_discovery", "root"), section)
@@ -640,7 +601,6 @@ def _parse_repo_discovery(data):
         final_repo_limit=_get_required(d, "final_repo_limit", section),
     )
 
-
 def _parse_canonical_label(data, section_name):
     d = _require_dict(data, section_name)
     return CanonicalLabelConfig(
@@ -649,14 +609,12 @@ def _parse_canonical_label(data, section_name):
         partial_match_allowed=_get_optional(d, "partial_match_allowed", False),
     )
 
-
 def _parse_label_type(data, section_name):
     d = _require_dict(data, section_name)
     return LabelTypeConfig(
         canonical_name=_get_required(d, "canonical_name", section_name),
         variants=_require_list(_get_required(d, "variants", section_name), section_name + ".variants"),
     )
-
 
 def _parse_label_normalization(data):
     section = "label_normalization"
@@ -687,7 +645,6 @@ def _parse_label_normalization(data):
         ),
     )
 
-
 def _parse_issue_selection(data):
     section = "issue_selection"
     d = _require_dict(_get_required(data, "issue_selection", "root"), section)
@@ -716,6 +673,22 @@ def _parse_issue_selection(data):
         ),
     )
 
+def _parse_issue_extraction(data):
+    section = "issue_extraction"
+    d = _require_dict(_get_required(data, "issue_extraction", "root"), section)
+    return IssueExtractionConfig(
+        enabled=_get_required(d, "enabled", section),
+        max_issue_pages_per_repo_per_state=_get_required(d, "max_issue_pages_per_repo_per_state", section),
+        max_comment_pages_per_issue=_get_required(d, "max_comment_pages_per_issue", section),
+        max_repos_per_run=_get_optional(d, "max_repos_per_run", None),
+        resume_mode=_get_required(d, "resume_mode", section),
+        write_repo_manifest=_get_required(d, "write_repo_manifest", section),
+        fail_on_missing_repo_id=_get_required(d, "fail_on_missing_repo_id", section),
+        write_batch_size=_get_required(d, "write_batch_size", section),
+        sort_before_write=_get_required(d, "sort_before_write", section),
+        request_pause_seconds_between_repos=_get_required(d, "request_pause_seconds_between_repos", section),
+        skip_repo_if_raw_exists=_get_required(d, "skip_repo_if_raw_exists", section),
+    )
 
 def _parse_pull_request_selection(data):
     section = "pull_request_selection"
@@ -730,7 +703,6 @@ def _parse_pull_request_selection(data):
         include_pr_files=_get_required(d, "include_pr_files", section),
         include_review_comments=_get_required(d, "include_review_comments", section),
     )
-
 
 def _parse_git_history_extraction(data):
     section = "git_history_extraction"
@@ -759,7 +731,6 @@ def _parse_git_history_extraction(data):
         ),
     )
 
-
 def _parse_comparison_set(data):
     section = "comparison_set"
     d = _require_dict(_get_required(data, "comparison_set", "root"), section)
@@ -781,7 +752,6 @@ def _parse_comparison_set(data):
             max_controls_per_wontfix=_get_required(matching_d, "max_controls_per_wontfix", "comparison_set.matching_rules"),
         ),
     )
-
 
 def _parse_linkage(data):
     section = "linkage"
@@ -811,7 +781,6 @@ def _parse_linkage(data):
         ),
     )
 
-
 def _parse_identity_resolution(data):
     section = "identity_resolution"
     d = _require_dict(_get_required(data, "identity_resolution", "root"), section)
@@ -839,7 +808,6 @@ def _parse_identity_resolution(data):
         store_identity_confidence=_get_required(d, "store_identity_confidence", section),
     )
 
-
 def _parse_bot_handling(data):
     section = "bot_handling"
     d = _require_dict(_get_required(data, "bot_handling", "root"), section)
@@ -851,7 +819,6 @@ def _parse_bot_handling(data):
         exclude_bots_from_ownership_metrics=_get_required(d, "exclude_bots_from_ownership_metrics", section),
         keep_bot_rows_with_flag=_get_required(d, "keep_bot_rows_with_flag", section),
     )
-
 
 def _parse_storage(data):
     section = "storage"
@@ -871,8 +838,8 @@ def _parse_storage(data):
         save_per_repo_raw_files=_get_required(d, "save_per_repo_raw_files", section),
         save_checkpoint_files=_get_required(d, "save_checkpoint_files", section),
         save_intermediate_tables=_get_required(d, "save_intermediate_tables", section),
+        append_processed_batches=_get_required(d, "append_processed_batches", section),
     )
-
 
 def _parse_outputs(data):
     section = "outputs"
@@ -889,8 +856,10 @@ def _parse_outputs(data):
         contributor_identity_table=_get_required(d, "contributor_identity_table", section),
         issue_pr_links_table=_get_required(d, "issue_pr_links_table", section),
         issue_file_links_table=_get_required(d, "issue_file_links_table", section),
+        extraction_summary_csv=_get_required(d, "extraction_summary_csv", section),
+        run_manifest_json=_get_required(d, "run_manifest_json", section),
+        resolved_config_snapshot_yaml=_get_required(d, "resolved_config_snapshot_yaml", section),
     )
-
 
 def _parse_checkpointing(data):
     section = "checkpointing"
@@ -903,7 +872,6 @@ def _parse_checkpointing(data):
         write_status_after_each_page=_get_required(d, "write_status_after_each_page", section),
         write_status_after_each_repo=_get_required(d, "write_status_after_each_repo", section),
     )
-
 
 def _parse_logging(data):
     section = "logging"
@@ -918,7 +886,6 @@ def _parse_logging(data):
         qa_log_dir=_get_required(d, "qa_log_dir", section),
     )
 
-
 def _parse_quality_assurance(data):
     section = "quality_assurance"
     d = _require_dict(_get_required(data, "quality_assurance", "root"), section)
@@ -929,7 +896,6 @@ def _parse_quality_assurance(data):
         write_summary_report=_get_required(d, "write_summary_report", section),
         summary_report_path=_get_required(d, "summary_report_path", section),
     )
-
 
 def _parse_rq_scope_item(data):
     return RqScopeItemConfig(
@@ -942,7 +908,6 @@ def _parse_rq_scope_item(data):
         requires_repo_activity_timeseries=_get_optional(data, "requires_repo_activity_timeseries", False),
     )
 
-
 def _parse_rq_scoping(data):
     section = "rq_scoping"
     d = _require_dict(_get_required(data, "rq_scoping", "root"), section)
@@ -951,7 +916,6 @@ def _parse_rq_scoping(data):
         rq2=_parse_rq_scope_item(_require_dict(_get_required(d, "rq2", section), "rq_scoping.rq2")),
         rq3=_parse_rq_scope_item(_require_dict(_get_required(d, "rq3", section), "rq_scoping.rq3")),
     )
-
 
 def load_study_config(config_path):
     config_path = Path(config_path)
@@ -976,6 +940,7 @@ def load_study_config(config_path):
         repo_discovery=_parse_repo_discovery(raw_data),
         label_normalization=_parse_label_normalization(raw_data),
         issue_selection=_parse_issue_selection(raw_data),
+        issue_extraction=_parse_issue_extraction(raw_data),
         pull_request_selection=_parse_pull_request_selection(raw_data),
         git_history_extraction=_parse_git_history_extraction(raw_data),
         comparison_set=_parse_comparison_set(raw_data),
@@ -989,10 +954,21 @@ def load_study_config(config_path):
         quality_assurance=_parse_quality_assurance(raw_data),
         rq_scoping=_parse_rq_scoping(raw_data),
     )
-
     validate_study_config(config)
+    config = resolve_config_paths(config)
     return config
 
+def _validate_date_string(value, field_name):
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ConfigError(f"{field_name} must be YYYY-MM-DD.") from exc
+
+def _resolve_path(base_path, value):
+    path = Path(value)
+    if path.is_absolute():
+        return str(path)
+    return str((Path(base_path) / path).resolve())
 
 def validate_study_config(config):
     if config.repo_selection.inclusion_criteria.min_stars < 0:
@@ -1027,6 +1003,28 @@ def validate_study_config(config):
     if config.issue_selection.include_issues and not config.issue_selection.states:
         raise ConfigError("issue_selection.states cannot be empty when include_issues is true.")
 
+    _validate_date_string(config.study.date, "study.date")
+    _validate_date_string(config.study_windows.issue_collection.start_date, "study_windows.issue_collection.start_date")
+    _validate_date_string(config.study_windows.issue_collection.end_date, "study_windows.issue_collection.end_date")
+    _validate_date_string(config.study_windows.participation_analysis.start_date, "study_windows.participation_analysis.start_date")
+    _validate_date_string(config.study_windows.participation_analysis.end_date, "study_windows.participation_analysis.end_date")
+    _validate_date_string(config.repo_selection.activity_definition.cutoff_date, "repo_selection.activity_definition.cutoff_date")
+
+    if config.study_windows.issue_collection.start_date > config.study_windows.issue_collection.end_date:
+        raise ConfigError("study_windows.issue_collection.start_date must be <= end_date.")
+
+    if config.issue_extraction.max_issue_pages_per_repo_per_state <= 0:
+        raise ConfigError("issue_extraction.max_issue_pages_per_repo_per_state must be > 0.")
+
+    if config.issue_extraction.max_comment_pages_per_issue <= 0:
+        raise ConfigError("issue_extraction.max_comment_pages_per_issue must be > 0.")
+
+    if config.issue_extraction.write_batch_size <= 0:
+        raise ConfigError("issue_extraction.write_batch_size must be > 0.")
+
+    if config.issue_extraction.resume_mode not in {"checkpoint_only", "raw_or_checkpoint", "fresh"}:
+        raise ConfigError("issue_extraction.resume_mode must be one of checkpoint_only, raw_or_checkpoint, fresh.")
+
     allowed_visibility = {"public"}
     if config.repo_selection.inclusion_criteria.visibility not in allowed_visibility:
         raise ConfigError(
@@ -1053,6 +1051,45 @@ def validate_study_config(config):
     if config.git_history_extraction.enabled and not config.git_history_extraction.clone_root:
         raise ConfigError("git_history_extraction.clone_root is required when git history extraction is enabled.")
 
+def resolve_config_paths(config):
+    resolved = copy.deepcopy(config)
+    base = Path(resolved.paths.project_root).resolve()
+
+    resolved.paths.project_root = str(base)
+    resolved.paths.data_root = _resolve_path(base, resolved.paths.data_root)
+    resolved.paths.raw_root = _resolve_path(base, resolved.paths.raw_root)
+    resolved.paths.processed_root = _resolve_path(base, resolved.paths.processed_root)
+    resolved.paths.linked_root = _resolve_path(base, resolved.paths.linked_root)
+    resolved.paths.features_root = _resolve_path(base, resolved.paths.features_root)
+    resolved.paths.final_root = _resolve_path(base, resolved.paths.final_root)
+    resolved.paths.logs_root = _resolve_path(base, resolved.paths.logs_root)
+    resolved.paths.config_root = _resolve_path(base, resolved.paths.config_root)
+
+    resolved.git_history_extraction.clone_root = _resolve_path(base, resolved.git_history_extraction.clone_root)
+
+    resolved.outputs.repo_candidate_list = _resolve_path(base, resolved.outputs.repo_candidate_list)
+    resolved.outputs.repo_included_list = _resolve_path(base, resolved.outputs.repo_included_list)
+    resolved.outputs.repositories_table = _resolve_path(base, resolved.outputs.repositories_table)
+    resolved.outputs.issues_table = _resolve_path(base, resolved.outputs.issues_table)
+    resolved.outputs.issue_comments_table = _resolve_path(base, resolved.outputs.issue_comments_table)
+    resolved.outputs.pull_requests_table = _resolve_path(base, resolved.outputs.pull_requests_table)
+    resolved.outputs.commits_table = _resolve_path(base, resolved.outputs.commits_table)
+    resolved.outputs.commit_files_table = _resolve_path(base, resolved.outputs.commit_files_table)
+    resolved.outputs.contributor_identity_table = _resolve_path(base, resolved.outputs.contributor_identity_table)
+    resolved.outputs.issue_pr_links_table = _resolve_path(base, resolved.outputs.issue_pr_links_table)
+    resolved.outputs.issue_file_links_table = _resolve_path(base, resolved.outputs.issue_file_links_table)
+    resolved.outputs.extraction_summary_csv = _resolve_path(base, resolved.outputs.extraction_summary_csv)
+    resolved.outputs.run_manifest_json = _resolve_path(base, resolved.outputs.run_manifest_json)
+    resolved.outputs.resolved_config_snapshot_yaml = _resolve_path(base, resolved.outputs.resolved_config_snapshot_yaml)
+
+    resolved.checkpointing.checkpoint_dir = _resolve_path(base, resolved.checkpointing.checkpoint_dir)
+    resolved.logging.extraction_log_dir = _resolve_path(base, resolved.logging.extraction_log_dir)
+    resolved.logging.normalization_log_dir = _resolve_path(base, resolved.logging.normalization_log_dir)
+    resolved.logging.linkage_log_dir = _resolve_path(base, resolved.logging.linkage_log_dir)
+    resolved.logging.qa_log_dir = _resolve_path(base, resolved.logging.qa_log_dir)
+    resolved.quality_assurance.summary_report_path = _resolve_path(base, resolved.quality_assurance.summary_report_path)
+
+    return resolved
 
 def ensure_project_directories(config):
     paths_to_create = [
@@ -1076,7 +1113,6 @@ def ensure_project_directories(config):
     for path_str in paths_to_create:
         Path(path_str).mkdir(parents=True, exist_ok=True)
 
-
 def config_to_dict(config):
     """
     Lightweight helper for debugging. Converts the dataclass tree into plain dictionaries.
@@ -1095,6 +1131,11 @@ def config_to_dict(config):
 
     return config
 
+def write_resolved_config_snapshot(config):
+    output_path = Path(config.outputs.resolved_config_snapshot_yaml)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(config_to_dict(config), handle, sort_keys=False)
 
 if __name__ == "__main__":
     config = load_study_config("config/study_config.yaml")

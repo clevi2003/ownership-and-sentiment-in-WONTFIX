@@ -181,6 +181,19 @@ issue_selection:
     include_comment_reactions: false
     preserve_comment_order: true
 
+issue_extraction:
+  enabled: true
+  max_issue_pages_per_repo_per_state: 50
+  max_comment_pages_per_issue: 20
+  max_repos_per_run: null
+  resume_mode: "checkpoint_only" # checkpoint_only, raw_or_checkpoint, or fresh
+  write_repo_manifest: true
+  fail_on_missing_repo_id: true
+  write_batch_size: 5000
+  sort_before_write: true
+  request_pause_seconds_between_repos: 0
+  skip_repo_if_raw_exists: false
+
 pull_request_selection:
   include_pull_requests: true
   include_pr_body: true
@@ -302,6 +315,7 @@ storage:
   save_per_repo_raw_files: true
   save_checkpoint_files: true
   save_intermediate_tables: true
+  append_processed_batches: false
 
 outputs:
   repo_candidate_list: "./data/processed/repo_candidates.csv"
@@ -315,6 +329,9 @@ outputs:
   contributor_identity_table: "./data/linked/contributor_identity_map.parquet"
   issue_pr_links_table: "./data/linked/issue_pr_links.parquet"
   issue_file_links_table: "./data/linked/issue_file_links.parquet"
+  extraction_summary_csv: "./logs/extraction/issues_comments_extraction_summary.csv"
+  run_manifest_json: "./logs/extraction/issues_comments_run_manifest.json"
+  resolved_config_snapshot_yaml: "./logs/extraction/resolved_study_config.yaml"
 
 checkpointing:
   enabled: true
