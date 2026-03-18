@@ -332,6 +332,9 @@ outputs:
   extraction_summary_csv: "./logs/extraction/issues_comments_extraction_summary.csv"
   run_manifest_json: "./logs/extraction/issues_comments_run_manifest.json"
   resolved_config_snapshot_yaml: "./logs/extraction/resolved_study_config.yaml"
+  comparison_issue_set_table: "./data/processed/comparison_issue_set.parquet"
+  wontfix_issue_set_table: "./data/processed/wontfix_issue_set.parquet"
+  comparison_issue_qa_summary_csv: "./logs/qa/comparison_issue_set_summary.csv"
 
 checkpointing:
   enabled: true
