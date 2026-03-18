@@ -110,6 +110,170 @@ def get_normalized_wontfix_variants(config):
     return normalized
 
 
+def fetch_repo_by_full_name(session, headers, config, logger, repo_full_name):
+    url = f"{config.github.api_base_url}/repos/{repo_full_name}"
+    response = make_request(session, url, headers, None, config, logger)
+    return response.json()
+
+
+def repo_meets_structural_criteria(repo_payload, config):
+    if not repo_payload:
+        return False
+
+    visibility = repo_payload.get("visibility")
+    if config.repo_selection.inclusion_criteria.visibility:
+        if visibility != config.repo_selection.inclusion_criteria.visibility:
+            return False
+
+    if (repo_payload.get("stargazers_count") or 0) < config.repo_selection.inclusion_criteria.min_stars:
+        return False
+
+    if config.repo_selection.inclusion_criteria.exclude_forks and repo_payload.get("fork"):
+        return False
+
+    if config.repo_selection.inclusion_criteria.exclude_archived and repo_payload.get("archived"):
+        return False
+
+    if config.repo_selection.inclusion_criteria.require_recent_activity:
+        cutoff = config.repo_selection.activity_definition.cutoff_date
+        pushed_at = repo_payload.get("pushed_at")
+        if not pushed_at:
+            return False
+        if pushed_at[:10] < cutoff:
+            return False
+
+    return True
+
+
+def repo_has_wontfix_issue_in_window(session, headers, config, logger, repo_full_name):
+    url = f"{config.github.api_base_url}/search/issues"
+    search_ranges = build_search_ranges(config)
+    wontfix_variants = get_normalized_wontfix_variants(config)
+
+    matched_variants = set()
+    matched_years = set()
+    example_issue_urls = []
+    issue_hit_count_observed = 0
+
+    for variant in wontfix_variants:
+        for date_range in search_ranges:
+            query = (
+                f'repo:{repo_full_name} is:issue archived:false '
+                f'label:"{variant}" created:{date_range["start"]}..{date_range["end"]}'
+            )
+
+            params = {
+                "q": query,
+                "sort": "created",
+                "order": "desc",
+                "per_page": 10,
+                "page": 1,
+            }
+
+            logger.info(
+                "Checking allowlisted repo for WONTFIX issues | repo=%s | variant='%s' | range=%s",
+                repo_full_name,
+                variant,
+                date_range["year"],
+            )
+
+            response = make_request(session, url, headers, params, config, logger)
+            payload = response.json()
+
+            items = payload.get("items", [])
+            if not items:
+                continue
+
+            matched_variants.add(variant)
+            matched_years.add(str(date_range["year"]))
+            issue_hit_count_observed += len(items)
+
+            for item in items[:3]:
+                html_url = item.get("html_url")
+                if html_url and html_url not in example_issue_urls:
+                    example_issue_urls.append(html_url)
+
+    return {
+        "has_wontfix_issue": bool(matched_variants),
+        "matched_variants": sorted(matched_variants),
+        "matched_years": sorted(matched_years),
+        "example_issue_urls": json.dumps(example_issue_urls),
+        "issue_hit_count_observed": issue_hit_count_observed,
+    }
+
+
+def discover_allowlisted_candidate_repos(config, logger):
+    logger.info("Phase 1: Evaluating allowlisted repositories directly.")
+
+    session = requests.Session()
+    headers = get_github_headers(config)
+
+    allowlist = config.repo_selection.discovery_filters.repos_allowlist
+    all_rows = []
+
+    for repo_full_name in allowlist:
+        logger.info("Evaluating allowlisted repo %s", repo_full_name)
+
+        try:
+            repo_payload = fetch_repo_by_full_name(session, headers, config, logger, repo_full_name)
+            row = flatten_repo_record(repo_payload)
+
+            if not repo_passes_allow_block_rules(row["full_name"], row["owner_login"], config):
+                logger.info("Skipping %s because it failed allow/block rules.", repo_full_name)
+                continue
+
+            if not repo_meets_structural_criteria(repo_payload, config):
+                logger.info("Skipping %s because it failed structural criteria.", repo_full_name)
+                continue
+
+            row["meets_structural_filters"] = True
+            all_rows.append(row)
+
+        except Exception:
+            logger.exception("Failed while evaluating allowlisted repo %s", repo_full_name)
+
+    logger.info("Allowlist candidate evaluation complete. Total candidates kept: %s", len(all_rows))
+    return all_rows
+
+
+def search_wontfix_repos_from_allowlist(config, logger, candidate_rows):
+    logger.info("Phase 2: Checking WONTFIX issues only for allowlisted candidate repos.")
+
+    session = requests.Session()
+    headers = get_github_headers(config)
+
+    output_rows = []
+    query_run_rows = []
+
+    for row in candidate_rows:
+        repo_full_name = row["full_name"]
+        result = repo_has_wontfix_issue_in_window(session, headers, config, logger, repo_full_name)
+
+        if not result["has_wontfix_issue"]:
+            continue
+
+        output_rows.append(
+            {
+                "full_name": repo_full_name,
+                "matched_variants": json.dumps(result["matched_variants"]),
+                "matched_years": json.dumps(result["matched_years"]),
+                "example_issue_urls": result["example_issue_urls"],
+                "issue_hit_count_observed": result["issue_hit_count_observed"],
+            }
+        )
+
+        query_run_rows.append(
+            {
+                "repo_full_name": repo_full_name,
+                "matched_variants": json.dumps(result["matched_variants"]),
+                "matched_years": json.dumps(result["matched_years"]),
+                "issue_hit_count_observed": result["issue_hit_count_observed"],
+            }
+        )
+
+    logger.info("Allowlist WONTFIX screening complete. Unique repos found: %s", len(output_rows))
+    return output_rows, query_run_rows
+
 def repo_passes_allow_block_rules(repo_full_name, owner_login, config):
     filters = config.repo_selection.discovery_filters
 
@@ -632,8 +796,14 @@ def main():
 
     logger.info("Loaded config from %s", DEFAULT_CONFIG_PATH)
 
-    candidate_rows = discover_candidate_repos(config, logger)
-    wontfix_rows, query_run_rows = search_wontfix_repos_globally(config, logger)
+    allowlist = config.repo_selection.discovery_filters.repos_allowlist
+    if allowlist:
+        candidate_rows = discover_allowlisted_candidate_repos(config, logger)
+        wontfix_rows, query_run_rows = search_wontfix_repos_from_allowlist(config, logger, candidate_rows)
+    else:
+        candidate_rows = discover_candidate_repos(config, logger)
+        wontfix_rows, query_run_rows = search_wontfix_repos_globally(config, logger)
+
     final_rows = intersect_candidate_and_wontfix_repos(candidate_rows, wontfix_rows, config, logger)
     write_outputs(config, candidate_rows, wontfix_rows, final_rows, query_run_rows, logger)
     write_summary_report(config, candidate_rows, wontfix_rows, final_rows, logger)

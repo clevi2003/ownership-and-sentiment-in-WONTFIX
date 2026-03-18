@@ -240,6 +240,9 @@ class IssueExtractionConfig:
     sort_before_write: bool
     request_pause_seconds_between_repos: int
     skip_repo_if_raw_exists: bool
+    search_max_results_per_shard: int
+    search_max_shard_splits: int
+    max_search_pages_per_shard: int
 
 @dataclass
 class PullRequestSelectionConfig:
@@ -688,6 +691,9 @@ def _parse_issue_extraction(data):
         sort_before_write=_get_required(d, "sort_before_write", section),
         request_pause_seconds_between_repos=_get_required(d, "request_pause_seconds_between_repos", section),
         skip_repo_if_raw_exists=_get_required(d, "skip_repo_if_raw_exists", section),
+        search_max_results_per_shard=_get_optional(d, "search_max_results_per_shard", 900),
+        search_max_shard_splits=_get_optional(d, "search_max_shard_splits", 1000),
+        max_search_pages_per_shard=_get_optional(d, "max_search_pages_per_shard", None),
     )
 
 def _parse_pull_request_selection(data):
@@ -1024,6 +1030,18 @@ def validate_study_config(config):
 
     if config.issue_extraction.resume_mode not in {"checkpoint_only", "raw_or_checkpoint", "fresh"}:
         raise ConfigError("issue_extraction.resume_mode must be one of checkpoint_only, raw_or_checkpoint, fresh.")
+
+    if config.issue_extraction.search_max_results_per_shard <= 0:
+        raise ConfigError("issue_extraction.search_max_results_per_shard must be > 0.")
+
+    if config.issue_extraction.search_max_shard_splits <= 0:
+        raise ConfigError("issue_extraction.search_max_shard_splits must be > 0.")
+
+    if (
+        config.issue_extraction.max_search_pages_per_shard is not None
+        and config.issue_extraction.max_search_pages_per_shard <= 0
+    ):
+        raise ConfigError("issue_extraction.max_search_pages_per_shard must be > 0 when provided.")
 
     allowed_visibility = {"public"}
     if config.repo_selection.inclusion_criteria.visibility not in allowed_visibility:

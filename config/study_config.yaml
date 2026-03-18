@@ -56,7 +56,7 @@ repo_selection:
   discover_repositories: true
   inclusion_criteria:
     visibility: "public"
-    min_stars: 10000
+    min_stars: 100
     exclude_forks: true
     exclude_archived: true
     require_recent_activity: true
@@ -67,8 +67,7 @@ repo_selection:
     owners_blocklist: []
     # repos_allowlist: []
     repos_allowlist:
-      - "microsoft/vscode"
-      - "facebook/react"
+      - "nextcloud/docker"
     repos_blocklist: []
   activity_definition:
     field: "pushed_at"
@@ -184,15 +183,18 @@ issue_selection:
 issue_extraction:
   enabled: true
   max_issue_pages_per_repo_per_state: 50
-  max_comment_pages_per_issue: 20
-  max_repos_per_run: null
-  resume_mode: "checkpoint_only" # checkpoint_only, raw_or_checkpoint, or fresh
+  max_comment_pages_per_issue: 3
+  max_repos_per_run: 1
+  resume_mode: "fresh" # checkpoint_only, raw_or_checkpoint, or fresh
   write_repo_manifest: true
   fail_on_missing_repo_id: true
-  write_batch_size: 5000
+  write_batch_size: 1000
   sort_before_write: true
   request_pause_seconds_between_repos: 0
   skip_repo_if_raw_exists: false
+  search_max_results_per_shard: 900
+  search_max_shard_splits: 1000
+  max_search_pages_per_shard: 10
 
 pull_request_selection:
   include_pull_requests: true
