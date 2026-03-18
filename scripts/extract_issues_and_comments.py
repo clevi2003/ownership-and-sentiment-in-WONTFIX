@@ -20,7 +20,11 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.study_config_loader import ConfigError, ensure_project_directories, load_study_config
+from config.study_config_loader import ensure_project_directories, load_study_config
+from utils.github_api import build_session, fetch_repository_metadata, get_github_headers, make_request
+from utils.io_helpers import load_repo_list, save_json, write_processed_table
+from utils.labels import get_wontfix_variants, issue_has_wontfix_label, normalize_label_name
+from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint
 
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
@@ -115,25 +119,6 @@ def new_repo_result(repo_full_name, repo_id=None):
     }
 
 
-def build_session(config):
-    session = requests.Session()
-
-    retry = Retry(
-        total=config.github.rate_limit.max_retries,
-        read=config.github.rate_limit.max_retries,
-        connect=config.github.rate_limit.max_retries,
-        status=config.github.rate_limit.max_retries,
-        backoff_factor=max(config.github.rate_limit.retry_backoff_seconds / 10.0, 0.1),
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET"],
-        raise_on_status=False,
-    )
-
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-    return session
-
 
 def setup_logger(config):
     logger = logging.getLogger("extract_issues_and_comments")
@@ -156,21 +141,6 @@ def setup_logger(config):
     return logger
 
 
-def get_github_headers(config):
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": config.github.requests.user_agent,
-    }
-    if config.github.auth.use_token:
-        token = os.getenv(config.github.auth.token_env_var)
-        if not token:
-            raise ConfigError(
-                f"GitHub token environment variable '{config.github.auth.token_env_var}' is not set."
-            )
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
 def get_issue_extraction_option(config, field_name, default_value):
     if not hasattr(config, "issue_extraction"):
         return default_value
@@ -180,194 +150,6 @@ def get_issue_extraction_option(config, field_name, default_value):
     if value is None:
         return default_value
     return value
-
-
-def get_batch_root(config):
-    return Path(config.paths.processed_root) / "_batches" / BATCH_FOLDER_NAME
-
-
-def reset_batch_root(config):
-    batch_root = get_batch_root(config)
-    if batch_root.exists():
-        shutil.rmtree(batch_root)
-    batch_root.mkdir(parents=True, exist_ok=True)
-    return batch_root
-
-
-def get_repo_output_root(config, repo_full_name):
-    safe_repo_name = repo_full_name.replace("/", "__")
-    return Path(config.paths.raw_root) / "github_api" / RAW_FOLDER_NAME / safe_repo_name
-
-
-def get_checkpoint_path(config, repo_full_name):
-    safe_repo_name = repo_full_name.replace("/", "__")
-    return Path(config.checkpointing.checkpoint_dir) / f"{CHECKPOINT_PREFIX}__{safe_repo_name}.json"
-
-
-def should_skip_repo(config, repo_full_name):
-    resume_mode = get_issue_extraction_option(config, "resume_mode", "checkpoint_only")
-
-    if resume_mode in {"checkpoint_only", "raw_or_checkpoint"}:
-        if config.checkpointing.enabled and config.checkpointing.resume_from_checkpoints:
-            checkpoint_path = get_checkpoint_path(config, repo_full_name)
-            if checkpoint_path.exists():
-                with checkpoint_path.open("r", encoding="utf-8") as handle:
-                    payload = json.load(handle)
-                if payload.get("status") == "completed":
-                    return True, "completed_checkpoint"
-
-    if resume_mode == "raw_or_checkpoint":
-        raw_root = get_repo_output_root(config, repo_full_name)
-        if raw_root.exists() and get_issue_extraction_option(config, "skip_repo_if_raw_exists", False):
-            return True, "existing_raw_output"
-
-    return False, ""
-
-
-def write_repo_checkpoint(config, repo_full_name, payload):
-    if not config.checkpointing.enabled:
-        return
-    checkpoint_path = get_checkpoint_path(config, repo_full_name)
-    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    with checkpoint_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
-
-
-def make_request(session, url, headers, params, config, logger):
-    retries = 0
-    while True:
-        response = session.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=config.github.requests.timeout_seconds,
-        )
-
-        remaining = response.headers.get("X-RateLimit-Remaining")
-        reset_time = response.headers.get("X-RateLimit-Reset")
-
-        if response.status_code == 403 and remaining == "0":
-            if config.github.rate_limit.respect_reset_header and reset_time:
-                sleep_seconds = max(int(reset_time) - int(time.time()) + 5, 5)
-            else:
-                sleep_seconds = config.github.rate_limit.default_pause_seconds
-            logger.warning("Rate limit reached. Sleeping for %s seconds.", sleep_seconds)
-            time.sleep(sleep_seconds)
-            continue
-
-        if response.status_code in (403, 429, 500, 502, 503, 504):
-            retries += 1
-            if retries > config.github.rate_limit.max_retries:
-                response.raise_for_status()
-            sleep_seconds = config.github.rate_limit.retry_backoff_seconds * retries
-            logger.warning(
-                "GitHub response %s. Retry %s/%s after %s seconds.",
-                response.status_code,
-                retries,
-                config.github.rate_limit.max_retries,
-                sleep_seconds,
-            )
-            time.sleep(sleep_seconds)
-            continue
-
-        response.raise_for_status()
-
-        if remaining is not None:
-            try:
-                if int(remaining) <= config.github.rate_limit.min_remaining_before_pause:
-                    logger.info(
-                        "Approaching rate limit (remaining=%s). Pausing for %s seconds.",
-                        remaining,
-                        config.github.rate_limit.default_pause_seconds,
-                    )
-                    time.sleep(config.github.rate_limit.default_pause_seconds)
-            except ValueError:
-                pass
-
-        return response
-
-
-def save_json(data, output_path, use_gzip):
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if use_gzip and output_path.suffix != ".gz":
-        output_path = output_path.with_suffix(output_path.suffix + ".gz")
-
-    if output_path.suffix == ".gz":
-        with gzip.open(output_path, "wt", encoding="utf-8") as handle:
-            json.dump(data, handle, indent=2)
-    else:
-        with output_path.open("w", encoding="utf-8") as handle:
-            json.dump(data, handle, indent=2)
-
-    return 1
-
-
-def parse_github_datetime(value):
-    if not value:
-        return None
-    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-
-
-def load_repo_list(repo_list_path):
-    if not repo_list_path.exists():
-        raise FileNotFoundError(f"Repo list does not exist: {repo_list_path}")
-
-    repo_df = pd.read_csv(repo_list_path)
-    if repo_df.empty:
-        return []
-
-    required_columns = {"full_name"}
-    missing = required_columns - set(repo_df.columns)
-    if missing:
-        raise ValueError("Repo list is missing required columns: " + ", ".join(sorted(missing)))
-
-    return repo_df.to_dict(orient="records")
-
-
-def normalize_label_name(label_name, config):
-    value = label_name or ""
-    if not isinstance(value, str):
-        value = str(value)
-
-    if getattr(config.label_normalization, "strip_whitespace", False):
-        value = value.strip()
-    if getattr(config.label_normalization, "case_sensitive", True) is False:
-        value = value.lower()
-    if getattr(config.label_normalization, "normalize_unicode_quotes", False):
-        value = value.replace("’", "'").replace("`", "'")
-    if getattr(config.label_normalization, "normalize_hyphens_and_apostrophes", False):
-        value = value.replace("-", " ")
-        value = value.replace("_", " ")
-        value = value.replace("'", "")
-        value = " ".join(value.split())
-    return value
-
-
-def get_wontfix_variants(config):
-    variants = []
-    outcome_labels = getattr(config.label_normalization, "outcome_labels", None)
-    if outcome_labels and hasattr(outcome_labels, "wontfix"):
-        variants = list(getattr(outcome_labels.wontfix, "variants", []))
-    normalized = []
-    for value in variants:
-        normalized.append(normalize_label_name(value, config))
-    return sorted(set(normalized))
-
-
-def issue_has_wontfix_label(issue_payload, config):
-    wanted = set(get_wontfix_variants(config))
-    if not wanted:
-        return False
-
-    labels = issue_payload.get("labels") or []
-    for label in labels:
-        if isinstance(label, dict):
-            name = label.get("name")
-        else:
-            name = str(label)
-        if normalize_label_name(name, config) in wanted:
-            return True
-    return False
 
 
 def flatten_repository(repo_payload, repo_row):
@@ -468,12 +250,6 @@ def flatten_issue_comment(comment_payload, repo_full_name, issue_number, config)
         "reactions_json": json.dumps(comment_payload.get("reactions")) if config.issue_selection.comments.include_comment_reactions else None,
         "performed_via_github_app_json": json.dumps(comment_payload.get("performed_via_github_app")),
     }
-
-
-def fetch_repository_metadata(session, headers, config, logger, repo_full_name):
-    url = f"{config.github.api_base_url}/repos/{repo_full_name}"
-    response = make_request(session, url, headers, None, config, logger)
-    return response.json()
 
 
 def format_date(value):
@@ -652,22 +428,8 @@ def iter_issue_comment_pages(session, headers, config, logger, comments_url):
         page += 1
 
 
-def write_processed_table(df, output_path, config):
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if config.storage.processed_format == "parquet":
-        df.to_parquet(
-            output_path,
-            index=False,
-            compression=config.storage.compression.parquet_compression,
-        )
-        return
-
-    csv_path = output_path.with_suffix(".csv")
-    df.to_csv(csv_path, index=False)
-
-
 def merge_chunked_batches(config, logger):
-    batch_root = get_batch_root(config)
+    batch_root = get_batch_root(config, BATCH_FOLDER_NAME)
     repo_frames = []
     issue_frames = []
     comment_frames = []
@@ -823,7 +585,7 @@ def fetch_comments_for_issue(session, headers, config, logger, repo_full_name, i
 def extract_single_repo(session, headers, config, logger, repo_row):
     repo_full_name = repo_row["full_name"]
     result = new_repo_result(repo_full_name, repo_row.get("repo_id"))
-    raw_root = get_repo_output_root(config, repo_full_name)
+    raw_root = get_repo_output_root(config, RAW_FOLDER_NAME, repo_full_name)
     writer = RepoChunkWriter(config, repo_full_name)
 
     repository_payload = fetch_repository_metadata(session, headers, config, logger, repo_full_name)
@@ -958,7 +720,7 @@ def main():
 
     resume_mode = get_issue_extraction_option(config, "resume_mode", "checkpoint_only")
     if resume_mode == "fresh" and not config.storage.append_processed_batches:
-        reset_batch_root(config)
+        reset_batch_root(config, BATCH_FOLDER_NAME)
     elif not get_batch_root(config).exists():
         get_batch_root(config).mkdir(parents=True, exist_ok=True)
 
@@ -968,7 +730,11 @@ def main():
 
     for repo_row in repo_rows:
         repo_full_name = repo_row["full_name"]
-        should_skip, reason = should_skip_repo(config, repo_full_name)
+        should_skip, reason = should_skip_repo(config,
+                                               repo_full_name,
+                                               checkpoint_prefix=CHECKPOINT_PREFIX,
+                                               raw_folder_name=RAW_FOLDER_NAME,
+                                               section_name="issue_extraction")
         if should_skip:
             logger.info("Skipping %s because %s already exists.", repo_full_name, reason)
             summary_rows.append(
@@ -1006,15 +772,12 @@ def main():
             )
         except Exception as exc:
             logger.exception("Failed extraction for %s", repo_full_name)
-            write_repo_checkpoint(
-                config,
-                repo_full_name,
-                {
+            payload = {
                     "status": "failed",
                     "repo_full_name": repo_full_name,
                     "error_message": str(exc),
-                },
-            )
+                }
+            write_repo_checkpoint(config, CHECKPOINT_PREFIX, repo_full_name, payload)
             summary_rows.append(
                 {
                     "repo_full_name": repo_full_name,

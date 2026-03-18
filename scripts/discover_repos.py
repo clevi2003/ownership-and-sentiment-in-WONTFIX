@@ -1,12 +1,7 @@
-import csv
-import gzip
-import json
 import logging
-import os
-import time
 from datetime import datetime
 import pandas as pd
-import requests
+import json
 
 import sys
 from pathlib import Path
@@ -15,7 +10,10 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-from config.study_config_loader import load_study_config, ensure_project_directories, ConfigError
+from config.study_config_loader import load_study_config, ensure_project_directories
+from utils.github_api import build_session, fetch_repository_metadata, get_github_headers, make_request
+from utils.io_helpers import save_json, write_csv_rows
+from utils.labels import get_wontfix_variants
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -44,76 +42,6 @@ def setup_logger(config):
         logger.addHandler(file_handler)
 
     return logger
-
-
-def get_github_headers(config):
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": config.github.requests.user_agent,
-    }
-
-    if config.github.auth.use_token:
-        token = os.getenv(config.github.auth.token_env_var)
-        if not token:
-            raise ConfigError(
-                f"GitHub token environment variable '{config.github.auth.token_env_var}' is not set."
-            )
-        headers["Authorization"] = f"Bearer {token}"
-
-    return headers
-
-
-def save_raw_json(data, output_path):
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if str(output_path).endswith(".gz"):
-        with gzip.open(output_path, "wt", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    else:
-        with output_path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-
-
-def normalize_label_text(label, config):
-    if label is None:
-        return ""
-
-    text = str(label)
-
-    if config.label_normalization.normalize_unicode_quotes:
-        text = text.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
-
-    if config.label_normalization.normalize_hyphens_and_apostrophes:
-        text = text.replace("‐", "-").replace("–", "-").replace("—", "-")
-
-    if config.label_normalization.strip_whitespace:
-        text = text.strip()
-
-    if not config.label_normalization.case_sensitive:
-        text = text.lower()
-
-    return text
-
-
-def get_normalized_wontfix_variants(config):
-    variants = config.label_normalization.outcome_labels.wontfix.variants
-    normalized = []
-    seen = set()
-
-    for variant in variants:
-        clean = normalize_label_text(variant, config)
-        if clean and clean not in seen:
-            normalized.append(clean)
-            seen.add(clean)
-
-    return normalized
-
-
-def fetch_repo_by_full_name(session, headers, config, logger, repo_full_name):
-    url = f"{config.github.api_base_url}/repos/{repo_full_name}"
-    response = make_request(session, url, headers, None, config, logger)
-    return response.json()
 
 
 def repo_meets_structural_criteria(repo_payload, config):
@@ -148,7 +76,7 @@ def repo_meets_structural_criteria(repo_payload, config):
 def repo_has_wontfix_issue_in_window(session, headers, config, logger, repo_full_name):
     url = f"{config.github.api_base_url}/search/issues"
     search_ranges = build_search_ranges(config)
-    wontfix_variants = get_normalized_wontfix_variants(config)
+    wontfix_variants = get_wontfix_variants(config)
 
     matched_variants = set()
     matched_years = set()
@@ -205,7 +133,7 @@ def repo_has_wontfix_issue_in_window(session, headers, config, logger, repo_full
 def discover_allowlisted_candidate_repos(config, logger):
     logger.info("Phase 1: Evaluating allowlisted repositories directly.")
 
-    session = requests.Session()
+    session = build_session(config)
     headers = get_github_headers(config)
 
     allowlist = config.repo_selection.discovery_filters.repos_allowlist
@@ -215,7 +143,7 @@ def discover_allowlisted_candidate_repos(config, logger):
         logger.info("Evaluating allowlisted repo %s", repo_full_name)
 
         try:
-            repo_payload = fetch_repo_by_full_name(session, headers, config, logger, repo_full_name)
+            repo_payload = fetch_repository_metadata(session, headers, config, logger, repo_full_name)
             row = flatten_repo_record(repo_payload)
 
             if not repo_passes_allow_block_rules(row["full_name"], row["owner_login"], config):
@@ -239,7 +167,7 @@ def discover_allowlisted_candidate_repos(config, logger):
 def search_wontfix_repos_from_allowlist(config, logger, candidate_rows):
     logger.info("Phase 2: Checking WONTFIX issues only for allowlisted candidate repos.")
 
-    session = requests.Session()
+    session = build_session(config)
     headers = get_github_headers(config)
 
     output_rows = []
@@ -290,89 +218,6 @@ def repo_passes_allow_block_rules(repo_full_name, owner_login, config):
         return False
 
     return True
-
-
-def make_request(session, url, headers, params, config, logger):
-    retries = 0
-
-    while True:
-        response = session.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=config.github.requests.timeout_seconds,
-        )
-
-        remaining = response.headers.get("X-RateLimit-Remaining")
-        reset_time = response.headers.get("X-RateLimit-Reset")
-
-        if response.status_code == 403 and remaining == "0":
-            if config.github.rate_limit.respect_reset_header and reset_time:
-                sleep_seconds = max(int(reset_time) - int(time.time()) + 5, 5)
-            else:
-                sleep_seconds = config.github.rate_limit.default_pause_seconds
-
-            logger.warning(
-                "Rate limit reached. Sleeping for %s seconds before retrying.",
-                sleep_seconds,
-            )
-            time.sleep(sleep_seconds)
-            continue
-
-        if response.status_code in (500, 502, 503, 504):
-            retries += 1
-            if retries > config.github.rate_limit.max_retries:
-                response.raise_for_status()
-
-            sleep_seconds = config.github.rate_limit.retry_backoff_seconds * retries
-            logger.warning(
-                "GitHub server error %s. Retry %s/%s after %s seconds.",
-                response.status_code,
-                retries,
-                config.github.rate_limit.max_retries,
-                sleep_seconds,
-            )
-            time.sleep(sleep_seconds)
-            continue
-
-        if response.status_code == 403:
-            retries += 1
-            if retries > config.github.rate_limit.max_retries:
-                response.raise_for_status()
-
-            sleep_seconds = config.github.rate_limit.retry_backoff_seconds * retries
-            logger.warning(
-                "Received 403 response. Retry %s/%s after %s seconds.",
-                retries,
-                config.github.rate_limit.max_retries,
-                sleep_seconds,
-            )
-            time.sleep(sleep_seconds)
-            continue
-
-        response.raise_for_status()
-
-        if remaining is not None:
-            try:
-                remaining_int = int(remaining)
-                if remaining_int <= config.github.rate_limit.min_remaining_before_pause:
-                    logger.info(
-                        "Approaching rate limit (remaining=%s). Pausing for %s seconds.",
-                        remaining_int,
-                        config.github.rate_limit.default_pause_seconds,
-                    )
-                    time.sleep(config.github.rate_limit.default_pause_seconds)
-            except ValueError:
-                pass
-
-        logger.info(
-            "Rate limit headers | resource=%s | limit=%s | remaining=%s | reset=%s",
-            response.headers.get("X-RateLimit-Resource"),
-            response.headers.get("X-RateLimit-Limit"),
-            response.headers.get("X-RateLimit-Remaining"),
-            response.headers.get("X-RateLimit-Reset"),
-        )
-        return response
 
 
 def flatten_repo_record(repo):
@@ -462,7 +307,7 @@ def discover_candidate_repos(config, logger):
     raw_repo_dir = Path(config.paths.raw_root) / "github_api" / "repo_search"
     raw_repo_dir.mkdir(parents=True, exist_ok=True)
 
-    session = requests.Session()
+    session = build_session(config)
     headers = get_github_headers(config)
 
     all_rows = []
@@ -480,7 +325,9 @@ def discover_candidate_repos(config, logger):
         response = make_request(session, url, headers, params, config, logger)
         payload = response.json()
 
-        save_raw_json(payload, raw_repo_dir / f"repo_search_page_{page:03d}.json.gz")
+        save_json(payload,
+                  raw_repo_dir / f"repo_search_page_{page:03d}.json",
+                  use_gzip=config.storage.compression.raw_json_gzip)
 
         items = payload.get("items", [])
         if not items:
@@ -587,65 +434,56 @@ def search_wontfix_repos_globally(config, logger):
     raw_issue_dir = Path(config.paths.raw_root) / "github_api" / "global_wontfix_issue_search"
     raw_issue_dir.mkdir(parents=True, exist_ok=True)
 
-    session = requests.Session()
+    session = build_session(config)
     headers = get_github_headers(config)
     url = f"{config.github.api_base_url}/search/issues"
 
     search_ranges = build_search_ranges(config)
-    wontfix_variants = get_normalized_wontfix_variants(config)
+    wontfix_variants = get_wontfix_variants(config)
 
     repos_with_wontfix = {}
     query_run_rows = []
-
     max_pages_per_query = config.repo_discovery.max_issue_search_pages_per_query
 
     for variant in wontfix_variants:
+        safe_variant = variant.replace(" ", "_").replace("/", "_")
         for date_range in search_ranges:
             page = 1
-
             while True:
-                query = (
-                    f'is:issue archived:false label:"{variant}" '
-                    f'created:{date_range["start"]}..{date_range["end"]}'
-                )
+                query = (f'is:issue archived:false label:"{variant}" '
+                         f'created:{date_range["start"]}..{date_range["end"]}')
 
-                params = {
-                    "q": query,
-                    "sort": "created",
-                    "order": "desc",
-                    "per_page": config.github.pagination.per_page,
-                    "page": page,
-                }
+                params = {"q": query,
+                          "sort": "created",
+                          "order": "desc",
+                          "per_page": config.github.pagination.per_page,
+                          "page": page}
 
-                logger.info(
-                    "Searching WONTFIX issues | variant='%s' | range=%s | page=%s",
-                    variant,
-                    date_range["year"],
-                    page,
-                )
+                logger.info("Searching WONTFIX issues | variant='%s' | range=%s | page=%s",
+                            variant,
+                            date_range["year"],
+                            page)
 
                 response = make_request(session, url, headers, params, config, logger)
                 payload = response.json()
 
-                raw_name = (
-                    f'wontfix_search_{variant.replace(" ", "_").replace("/", "_")}_'
-                    f'{date_range["year"]}_page_{page:03d}.json.gz'
-                )
-                save_raw_json(payload, raw_issue_dir / raw_name)
+                raw_path = (raw_issue_dir
+                            / f"wontfix_search_{safe_variant}_{date_range['year']}_page_{page:03d}.json")
+                save_json(payload,
+                          raw_path,
+                          use_gzip=config.storage.compression.raw_json_gzip)
 
                 items = payload.get("items", [])
                 total_count = payload.get("total_count", 0)
 
                 query_run_rows.append(
-                    {
-                        "label_variant": variant,
-                        "range_label": date_range["year"],
-                        "start_date": date_range["start"],
-                        "end_date": date_range["end"],
-                        "page": page,
-                        "returned_items": len(items),
-                        "reported_total_count": total_count,
-                    }
+                    {"label_variant": variant,
+                     "range_label": date_range["year"],
+                     "start_date": date_range["start"],
+                     "end_date": date_range["end"],
+                     "page": page,
+                     "returned_items": len(items),
+                     "reported_total_count": total_count}
                 )
 
                 if not items:
@@ -656,23 +494,23 @@ def search_wontfix_repos_globally(config, logger):
                     if not repo_full_name:
                         continue
 
-                    if repo_full_name not in repos_with_wontfix:
-                        repos_with_wontfix[repo_full_name] = {
-                            "full_name": repo_full_name,
-                            "matched_variants": set(),
-                            "matched_years": set(),
-                            "example_issue_urls": set(),
-                            "issue_hit_count_observed": 0,
-                        }
+                    repo_info = repos_with_wontfix.setdefault(
+                        repo_full_name,
+                        {"full_name": repo_full_name,
+                         "matched_variants": set(),
+                         "matched_years": set(),
+                         "example_issue_urls": set(),
+                         "issue_hit_count_observed": 0}
+                    )
 
-                    repos_with_wontfix[repo_full_name]["matched_variants"].add(variant)
-                    repos_with_wontfix[repo_full_name]["matched_years"].add(str(date_range["year"]))
+                    repo_info["matched_variants"].add(variant)
+                    repo_info["matched_years"].add(str(date_range["year"]))
 
                     html_url = item.get("html_url")
                     if html_url:
-                        repos_with_wontfix[repo_full_name]["example_issue_urls"].add(html_url)
+                        repo_info["example_issue_urls"].add(html_url)
 
-                    repos_with_wontfix[repo_full_name]["issue_hit_count_observed"] += 1
+                    repo_info["issue_hit_count_observed"] += 1
 
                 if len(items) < config.github.pagination.per_page:
                     break
@@ -689,16 +527,17 @@ def search_wontfix_repos_globally(config, logger):
     output_rows = []
     for repo_full_name, info in repos_with_wontfix.items():
         output_rows.append(
-            {
-                "full_name": repo_full_name,
-                "matched_variants": json.dumps(sorted(info["matched_variants"])),
-                "matched_years": json.dumps(sorted(info["matched_years"])),
-                "example_issue_urls": json.dumps(sorted(list(info["example_issue_urls"]))[:5]),
-                "issue_hit_count_observed": info["issue_hit_count_observed"],
-            }
+            {"full_name": repo_full_name,
+             "matched_variants": json.dumps(sorted(info["matched_variants"])),
+             "matched_years": json.dumps(sorted(info["matched_years"])),
+             "example_issue_urls": json.dumps(sorted(info["example_issue_urls"])[:5]),
+             "issue_hit_count_observed": info["issue_hit_count_observed"]}
         )
 
-    logger.info("Global WONTFIX repo discovery complete. Unique repos found: %s", len(output_rows))
+    logger.info(
+        "Global WONTFIX repo discovery complete. Unique repos found: %s",
+        len(output_rows),
+    )
     return output_rows, query_run_rows
 
 
@@ -780,12 +619,7 @@ def write_summary_report(config, candidate_rows, wontfix_rows, final_rows, logge
         {"metric": "repos_with_wontfix_issue", "value": len(wontfix_rows)},
         {"metric": "included_repo_rows", "value": len(final_rows)},
     ]
-
-    with summary_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["metric", "value"])
-        writer.writeheader()
-        writer.writerows(rows)
-
+    write_csv_rows(rows, summary_path, fieldnames=["metric", "value"])
     logger.info("Wrote repo discovery summary report to %s", summary_path)
 
 
