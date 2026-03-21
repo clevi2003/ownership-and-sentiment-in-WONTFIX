@@ -1,11 +1,11 @@
 import json
 import logging
-import re
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
+import requests
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
@@ -17,16 +17,14 @@ from utils.github_api import build_session, fetch_repository_metadata, get_githu
 from utils.io_helpers import load_repo_list, save_json, write_processed_table
 from utils.chunk_writers import PullRequestRepoChunkWriter
 from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint
+from utils.regex_expressions import CLOSING_CLAUSE_PATTERN, ISSUE_REF_PATTERN, COMMIT_ISSUE_REF_PATTERN, ISSUE_NUMBER_FROM_REF_PATTERNS
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
 LOG_FILENAME = "03_extract_prs.log"
 CHECKPOINT_PREFIX = "03_extract_prs"
 BATCH_FOLDER_NAME = "pull_requests"
 RAW_FOLDER_NAME = "pull_requests"
-# leave this alone lest you fall into regex hell
-# also, this just looks for patterns like "fixes #123" or "closes #456" or "closed #789" or similar in PR bodies
-CLOSING_KEYWORD_PATTERN = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b", flags=re.IGNORECASE,)
-ISSUE_REF_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])#(\d+)\b")
+
 
 
 def setup_logger(config):
@@ -209,27 +207,19 @@ def fetch_issue_timeline_pages(session, headers, config, logger, repo_full_name,
 def extract_pr_numbers_from_timeline_event(event):
     numbers = set()
 
+    def maybe_add_issue_object(obj):
+        if not isinstance(obj, dict):
+            return
+        number = obj.get("number")
+        pull_request = obj.get("pull_request")
+        if number and pull_request is not None:
+            numbers.add(int(number))
+
+    maybe_add_issue_object(event.get("issue"))
+    maybe_add_issue_object(event.get("subject"))
+
     source = event.get("source") or {}
-    source_issue = source.get("issue") or {}
-
-    source_pr = source.get("pull_request") or {}
-    source_issue_pr = source_issue.get("pull_request") or {}
-
-    if source_issue.get("number") and (source_pr or source_issue_pr):
-        numbers.add(int(source_issue["number"]))
-
-    if source_pr.get("number"):
-        numbers.add(int(source_pr["number"]))
-
-    if source_issue_pr.get("number"):
-        numbers.add(int(source_issue_pr["number"]))
-
-    if event.get("event") in {"cross-referenced", "connected"}:
-        for candidate in (event.get("pull_request"), event.get("issue"), event.get("subject")):
-            if isinstance(candidate, dict):
-                number = candidate.get("number")
-                if number and candidate.get("pull_request") is not None:
-                    numbers.add(int(number))
+    maybe_add_issue_object(source.get("issue"))
 
     return sorted(numbers)
 
@@ -265,13 +255,29 @@ def fetch_pull_request_commits(session, headers, config, logger, repo_full_name,
 def extract_pr_body_issue_numbers(text):
     if not text:
         return set()
-    return {int(match) for match in CLOSING_KEYWORD_PATTERN.findall(text)}
+    issue_numbers = set()
+    for clause_match in CLOSING_CLAUSE_PATTERN.finditer(text):
+        tail = clause_match.group("tail") or ""
+        for ref_match in ISSUE_REF_PATTERN.finditer(tail):
+            for group_name in ("plain", "gh", "repo", "url"):
+                value = ref_match.group(group_name)
+                if value:
+                    issue_numbers.add(int(value))
+                    break
+    return issue_numbers
 
 
 def extract_commit_message_issue_numbers(text):
     if not text:
         return set()
-    return {int(match) for match in ISSUE_REF_PATTERN.findall(text)}
+    issue_numbers = set()
+    for match in COMMIT_ISSUE_REF_PATTERN.finditer(text):
+        for group_name in ("plain", "gh", "repo", "url"):
+            value = match.group(group_name)
+            if value:
+                issue_numbers.add(int(value))
+                break
+    return issue_numbers
 
 
 def dedupe_rows(rows, key_fields):
@@ -376,6 +382,51 @@ def merge_pr_batches(config, logger):
         logger.info("Wrote merged PR-commit links table to %s", pr_commit_output)
 
 
+def normalize_issue_reference(ref_text):
+    ref_text = ref_text.strip()
+    for pattern in ISSUE_NUMBER_FROM_REF_PATTERNS:
+        match = pattern.match(ref_text)
+        if match:
+            return int(match.group("num"))
+    return None
+
+
+def extract_commit_ids_from_timeline_event(event):
+    commit_ids = set()
+
+    commit_id = event.get("commit_id")
+    if commit_id:
+        commit_ids.add(commit_id)
+
+    source = event.get("source") or {}
+    source_commit = source.get("commit") or {}
+    source_commit_id = source_commit.get("sha") or source_commit.get("oid")
+    if source_commit_id:
+        commit_ids.add(source_commit_id)
+
+    return sorted(commit_ids)
+
+
+def fetch_pull_requests_for_commit(session, headers, config, logger, repo_full_name, commit_sha):
+    url = f"{config.github.api_base_url}/repos/{repo_full_name}/commits/{commit_sha}/pulls"
+
+    try:
+        response = make_request(session, url, headers, None, config, logger)
+        return response.json()
+    except requests.exceptions.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+
+        if status_code == 422:
+            logger.debug(
+                "Skipping commit->PR lookup due to 422 | repo=%s | commit=%s",
+                repo_full_name,
+                commit_sha,
+            )
+            return []
+
+        raise
+
+
 def process_repo(session, headers, config, logger, repo_row, issues_df):
     repo_full_name = repo_row["full_name"]
 
@@ -410,17 +461,30 @@ def process_repo(session, headers, config, logger, repo_row, issues_df):
         accept="application/vnd.github+json",
     )
 
-    for issue_number in sorted(target_issue_numbers):
-        logger.info("Fetching issue timeline | repo=%s | issue=%s", repo_full_name, issue_number)
+    issue_numbers_sorted = sorted(target_issue_numbers)
+    total_issue_count = len(issue_numbers_sorted)
+
+    for issue_index, issue_number in enumerate(issue_numbers_sorted, start=1):
+        if issue_index == 1 or issue_index % 50 == 0 or issue_index == total_issue_count:
+            logger.info(
+                "Timeline progress | repo=%s | issues_processed=%s/%s | prs_found=%s",
+                repo_full_name,
+                issue_index,
+                total_issue_count,
+                len(explicit_links_by_pr_number),
+            )
+
         result["timeline_requests"] += 1
 
+        commit_headers = get_github_headers(config, accept="application/vnd.github+json")
+
         for page, payload in fetch_issue_timeline_pages(
-            session,
-            timeline_headers,
-            config,
-            logger,
-            repo_full_name,
-            issue_number,
+                session,
+                timeline_headers,
+                config,
+                logger,
+                repo_full_name,
+                issue_number,
         ):
             result["timeline_pages_fetched"] += 1
             result["raw_files_written"] += save_json(
@@ -432,10 +496,8 @@ def process_repo(session, headers, config, logger, repo_row, issues_df):
             for event in payload:
                 result["timeline_events_seen"] += 1
 
+                # direct PR number discovery from timeline event
                 pr_numbers = extract_pr_numbers_from_timeline_event(event)
-                if not pr_numbers:
-                    continue
-
                 for pr_number in pr_numbers:
                     explicit_links_by_pr_number.setdefault(pr_number, []).append(
                         {
@@ -447,6 +509,40 @@ def process_repo(session, headers, config, logger, repo_row, issues_df):
                         }
                     )
                     result["explicit_pr_candidates_found"] += 1
+
+                # commit links to PR (some timeline events like closed are triggered by commits, try looking up associated PRs for those commits)
+                if event.get("event") in {"closed", "referenced"}:
+                    for commit_sha in extract_commit_ids_from_timeline_event(event):
+                        commit_pr_payload = fetch_pull_requests_for_commit(
+                            session,
+                            commit_headers,
+                            config,
+                            logger,
+                            repo_full_name,
+                            commit_sha,
+                        )
+
+                        result["raw_files_written"] += save_json(
+                            commit_pr_payload,
+                            raw_root / "commit_to_prs" / f"{commit_sha}.json",
+                            use_gzip=config.storage.compression.raw_json_gzip,
+                        )
+
+                        for pr_item in commit_pr_payload:
+                            pr_number = pr_item.get("number")
+                            if not pr_number:
+                                continue
+
+                            explicit_links_by_pr_number.setdefault(int(pr_number), []).append(
+                                {
+                                    "issue_number": issue_number,
+                                    "link_type": "explicit_github_reference",
+                                    "source_event_type": f"{event.get('event')}+commit_lookup",
+                                    "source_text": commit_sha,
+                                    "source_url": event.get("url"),
+                                }
+                            )
+                            result["explicit_pr_candidates_found"] += 1
 
             if config.checkpointing.enabled and config.checkpointing.write_status_after_each_page:
                 write_repo_checkpoint(
@@ -466,6 +562,12 @@ def process_repo(session, headers, config, logger, repo_row, issues_df):
                 )
 
     result["unique_pr_numbers_discovered"] = len(explicit_links_by_pr_number)
+    logger.info(
+        "Timeline discovery complete | repo=%s | issues_scanned=%s | unique_prs_found=%s",
+        repo_full_name,
+        total_issue_count,
+        result["unique_pr_numbers_discovered"],
+    )
 
     pr_rows = []
     issue_pr_rows = []
@@ -590,6 +692,13 @@ def process_repo(session, headers, config, logger, repo_row, issues_df):
     for row in pr_commit_rows:
         writer.add_pr_commit_row(row)
 
+    logger.info(
+        "Write prep | repo=%s | pr_rows=%s | issue_pr_rows=%s | pr_commit_rows=%s",
+        repo_full_name,
+        len(pr_rows),
+        len(issue_pr_rows),
+        len(pr_commit_rows),
+    )
     writer.finalize()
 
     result["pr_rows_written"] = len(pr_rows)

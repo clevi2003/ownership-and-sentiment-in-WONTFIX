@@ -123,11 +123,12 @@ def make_request(session,
             except ValueError:
                 pass
 
-        logger.info("Rate limit headers | resource=%s | limit=%s | remaining=%s | reset=%s",
-                    response.headers.get("X-RateLimit-Resource"),
-                    response.headers.get("X-RateLimit-Limit"),
-                    response.headers.get("X-RateLimit-Remaining"),
-                    response.headers.get("X-RateLimit-Reset"),
+        logger.debug(
+            "Rate limit headers | resource=%s | limit=%s | remaining=%s | reset=%s",
+            response.headers.get("X-RateLimit-Resource"),
+            response.headers.get("X-RateLimit-Limit"),
+            response.headers.get("X-RateLimit-Remaining"),
+            response.headers.get("X-RateLimit-Reset"),
         )
         return response
 

@@ -388,6 +388,7 @@ class OutputsConfig:
     commit_files_table: str
     contributor_identity_table: str
     issue_pr_links_table: str
+    pr_commit_links_table: str
     issue_file_links_table: str
     extraction_summary_csv: str
     run_manifest_json: str
@@ -861,6 +862,7 @@ def _parse_outputs(data):
         commit_files_table=_get_required(d, "commit_files_table", section),
         contributor_identity_table=_get_required(d, "contributor_identity_table", section),
         issue_pr_links_table=_get_required(d, "issue_pr_links_table", section),
+        pr_commit_links_table=_get_required(d, "pr_commit_links_table", section),
         issue_file_links_table=_get_required(d, "issue_file_links_table", section),
         extraction_summary_csv=_get_required(d, "extraction_summary_csv", section),
         run_manifest_json=_get_required(d, "run_manifest_json", section),
@@ -1095,6 +1097,7 @@ def resolve_config_paths(config):
     resolved.outputs.commit_files_table = _resolve_path(base, resolved.outputs.commit_files_table)
     resolved.outputs.contributor_identity_table = _resolve_path(base, resolved.outputs.contributor_identity_table)
     resolved.outputs.issue_pr_links_table = _resolve_path(base, resolved.outputs.issue_pr_links_table)
+    resolved.outputs.pr_commit_links_table = _resolve_path(base, resolved.outputs.pr_commit_links_table)
     resolved.outputs.issue_file_links_table = _resolve_path(base, resolved.outputs.issue_file_links_table)
     resolved.outputs.extraction_summary_csv = _resolve_path(base, resolved.outputs.extraction_summary_csv)
     resolved.outputs.run_manifest_json = _resolve_path(base, resolved.outputs.run_manifest_json)
