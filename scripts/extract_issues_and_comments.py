@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from config.study_config_loader import ensure_project_directories, load_study_config
 from utils.github_api import build_session, fetch_repository_metadata, get_github_headers, make_request
 from utils.io_helpers import load_repo_list, save_json, write_processed_table
+from utils.chunk_writers import IssueCommentRepoChunkWriter
 from utils.labels import get_wontfix_variants, issue_has_wontfix_label, normalize_label_name
 from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint
 
@@ -32,70 +33,6 @@ LOG_FILENAME = "02_extract_issues_and_comments.log"
 CHECKPOINT_PREFIX = "02_extract_issues_and_comments"
 BATCH_FOLDER_NAME = "issues_and_comments"
 RAW_FOLDER_NAME = "issues_and_comments"
-
-
-class RepoChunkWriter:
-    def __init__(self, config, repo_full_name):
-        self.config = config
-        self.repo_full_name = repo_full_name
-        self.safe_repo_name = repo_full_name.replace("/", "__")
-        self.repo_dir = get_batch_root(config) / self.safe_repo_name
-        self.repo_dir.mkdir(parents=True, exist_ok=True)
-        self.batch_size = get_issue_extraction_option(config, "write_batch_size", 5000)
-        self.issue_rows = []
-        self.comment_rows = []
-        self.issue_part_index = 1
-        self.comment_part_index = 1
-        self.repository_written = False
-
-    def write_repository_row(self, row):
-        if self.repository_written:
-            return
-        output_path = self.repo_dir / "repositories.parquet"
-        pd.DataFrame([row]).to_parquet(
-            output_path,
-            index=False,
-            compression=self.config.storage.compression.parquet_compression,
-        )
-        self.repository_written = True
-
-    def add_issue_row(self, row):
-        self.issue_rows.append(row)
-        if len(self.issue_rows) >= self.batch_size:
-            self.flush_issue_rows()
-
-    def add_comment_row(self, row):
-        self.comment_rows.append(row)
-        if len(self.comment_rows) >= self.batch_size:
-            self.flush_comment_rows()
-
-    def flush_issue_rows(self):
-        if not self.issue_rows:
-            return
-        output_path = self.repo_dir / f"issues_part_{self.issue_part_index:05d}.parquet"
-        pd.DataFrame(self.issue_rows).to_parquet(
-            output_path,
-            index=False,
-            compression=self.config.storage.compression.parquet_compression,
-        )
-        self.issue_rows = []
-        self.issue_part_index += 1
-
-    def flush_comment_rows(self):
-        if not self.comment_rows:
-            return
-        output_path = self.repo_dir / f"issue_comments_part_{self.comment_part_index:05d}.parquet"
-        pd.DataFrame(self.comment_rows).to_parquet(
-            output_path,
-            index=False,
-            compression=self.config.storage.compression.parquet_compression,
-        )
-        self.comment_rows = []
-        self.comment_part_index += 1
-
-    def finalize(self):
-        self.flush_issue_rows()
-        self.flush_comment_rows()
 
 
 def new_repo_result(repo_full_name, repo_id=None):
@@ -586,7 +523,9 @@ def extract_single_repo(session, headers, config, logger, repo_row):
     repo_full_name = repo_row["full_name"]
     result = new_repo_result(repo_full_name, repo_row.get("repo_id"))
     raw_root = get_repo_output_root(config, RAW_FOLDER_NAME, repo_full_name)
-    writer = RepoChunkWriter(config, repo_full_name)
+    batch_size = get_issue_extraction_option(config, "write_batch_size", 5000)
+    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / repo_full_name.replace("/", "__")
+    writer = IssueCommentRepoChunkWriter(config=config, repo_dir=repo_dir, batch_size=batch_size,)
 
     repository_payload = fetch_repository_metadata(session, headers, config, logger, repo_full_name)
     result["raw_files_written"] += save_json(

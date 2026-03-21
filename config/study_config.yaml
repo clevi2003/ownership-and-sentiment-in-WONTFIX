@@ -330,6 +330,7 @@ outputs:
   commit_files_table: "./data/processed/commit_files.parquet"
   contributor_identity_table: "./data/linked/contributor_identity_map.parquet"
   issue_pr_links_table: "./data/linked/issue_pr_links.parquet"
+  pr_commit_links_table: "./data/linked/pr_commit_links.parquet"
   issue_file_links_table: "./data/linked/issue_file_links.parquet"
   extraction_summary_csv: "./logs/extraction/issues_comments_extraction_summary.csv"
   run_manifest_json: "./logs/extraction/issues_comments_run_manifest.json"
