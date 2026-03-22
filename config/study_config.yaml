@@ -214,6 +214,16 @@ git_history_extraction:
   include_full_history: true
   history_start_date: null
   history_end_date: null
+  fast_mode: true
+  fast_mode_date_window: "participation_analysis" # issue_collection | participation_analysis | explicit_history_dates
+  commit_message_mode: "subject_only" # full | subject_only | none
+  max_commit_message_chars: 300
+  max_repos_per_run: 1
+  resume_mode: "fresh" # checkpoint_only | raw_or_checkpoint | fresh
+  write_batch_size: 1000
+  request_pause_seconds_between_repos: 0
+  fail_on_missing_repo_id: true
+  skip_repo_if_raw_exists: false
   extract:
     commits: true
     commit_message: true
@@ -309,6 +319,7 @@ storage:
   raw_format: "json"
   processed_format: "parquet"
   summary_format: "csv"
+  processed_merge_mode: "partitioned_dataset"
   compression:
     raw_json_gzip: true
     parquet_compression: "snappy"

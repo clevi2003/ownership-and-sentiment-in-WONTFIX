@@ -280,20 +280,6 @@ def extract_commit_message_issue_numbers(text):
     return issue_numbers
 
 
-def dedupe_rows(rows, key_fields):
-    deduped = []
-    seen = set()
-
-    for row in rows:
-        key = tuple(row.get(field) for field in key_fields)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(row)
-
-    return deduped
-
-
 def merge_part_files(part_paths, sort_columns=None):
     frames = []
     for path in sorted(part_paths):
@@ -681,9 +667,9 @@ def process_repo(session, headers, config, logger, repo_row, issues_df):
                             )
                         )
 
-    pr_rows = dedupe_rows(pr_rows, ["repo_full_name", "pr_id", "pr_number"])
-    issue_pr_rows = dedupe_rows(issue_pr_rows, ["repo_full_name", "issue_id", "pr_id", "link_type"])
-    pr_commit_rows = dedupe_rows(pr_commit_rows, ["repo_full_name", "pr_id", "commit_sha"])
+    pr_rows = writer.dedupe_rows(pr_rows, ["repo_full_name", "pr_id", "pr_number"])
+    issue_pr_rows = writer.dedupe_rows(issue_pr_rows, ["repo_full_name", "issue_id", "pr_id", "link_type"])
+    pr_commit_rows = writer.dedupe_rows(pr_commit_rows, ["repo_full_name", "pr_id", "commit_sha"])
 
     for row in pr_rows:
         writer.add_pr_row(row)

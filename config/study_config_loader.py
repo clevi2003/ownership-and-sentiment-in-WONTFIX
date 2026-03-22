@@ -277,6 +277,16 @@ class GitHistoryExtractionConfig:
     include_full_history: bool
     history_start_date: str
     history_end_date: str
+    fast_mode: bool
+    fast_mode_date_window: str
+    commit_message_mode: str
+    max_commit_message_chars: int
+    max_repos_per_run: int
+    resume_mode: str
+    write_batch_size: int
+    request_pause_seconds_between_repos: int
+    fail_on_missing_repo_id: bool
+    skip_repo_if_raw_exists: bool
     extract: GitHistoryExtractFieldsConfig
 
 @dataclass
@@ -368,6 +378,7 @@ class StorageConfig:
     raw_format: str
     processed_format: str
     summary_format: str
+    processed_merge_mode: str
     compression: CompressionConfig
     overwrite_raw: bool
     overwrite_processed: bool
@@ -724,6 +735,16 @@ def _parse_git_history_extraction(data):
         include_full_history=_get_required(d, "include_full_history", section),
         history_start_date=_get_optional(d, "history_start_date", None),
         history_end_date=_get_optional(d, "history_end_date", None),
+        fast_mode=_get_optional(d, "fast_mode", False),
+        fast_mode_date_window=_get_optional(d, "fast_mode_date_window", "participation_analysis"),
+        commit_message_mode=_get_optional(d, "commit_message_mode", "full"),
+        max_commit_message_chars=_get_optional(d, "max_commit_message_chars", None),
+        max_repos_per_run=_get_optional(d, "max_repos_per_run", None),
+        resume_mode=_get_required(d, "resume_mode", section),
+        write_batch_size=_get_required(d, "write_batch_size", section),
+        request_pause_seconds_between_repos=_get_required(d, "request_pause_seconds_between_repos", section),
+        fail_on_missing_repo_id=_get_required(d, "fail_on_missing_repo_id", section),
+        skip_repo_if_raw_exists=_get_required(d, "skip_repo_if_raw_exists", section),
         extract=GitHistoryExtractFieldsConfig(
             commits=_get_required(extract_d, "commits", "git_history_extraction.extract"),
             commit_message=_get_required(extract_d, "commit_message", "git_history_extraction.extract"),
@@ -734,7 +755,8 @@ def _parse_git_history_extraction(data):
             modified_files=_get_required(extract_d, "modified_files", "git_history_extraction.extract"),
             additions_deletions=_get_required(extract_d, "additions_deletions", "git_history_extraction.extract"),
             file_change_type=_get_required(extract_d, "file_change_type", "git_history_extraction.extract"),
-            renames_when_detectable=_get_required(extract_d, "renames_when_detectable", "git_history_extraction.extract"),
+            renames_when_detectable=_get_required(extract_d, "renames_when_detectable",
+                                                  "git_history_extraction.extract"),
         ),
     )
 
@@ -836,6 +858,7 @@ def _parse_storage(data):
         raw_format=_get_required(d, "raw_format", section),
         processed_format=_get_required(d, "processed_format", section),
         summary_format=_get_required(d, "summary_format", section),
+        processed_merge_mode=_get_optional(d, "processed_merge_mode", "single_parquet"),
         compression=CompressionConfig(
             raw_json_gzip=_get_required(compression_d, "raw_json_gzip", "storage.compression"),
             parquet_compression=_get_required(compression_d, "parquet_compression", "storage.compression"),
@@ -1007,6 +1030,8 @@ def validate_study_config(config):
         raise ConfigError("storage.raw_format must currently be 'json'.")
     if config.storage.processed_format not in {"parquet", "csv"}:
         raise ConfigError("storage.processed_format must be 'parquet' or 'csv'.")
+    if config.storage.processed_merge_mode not in {"single_parquet", "partitioned_dataset"}:
+        raise ConfigError("storage.processed_merge_mode must be 'single_parquet' or 'partitioned_dataset'.")
 
     if config.issue_selection.include_issues and not config.issue_selection.states:
         raise ConfigError("issue_selection.states cannot be empty when include_issues is true.")
@@ -1070,6 +1095,19 @@ def validate_study_config(config):
 
     if config.git_history_extraction.enabled and not config.git_history_extraction.clone_root:
         raise ConfigError("git_history_extraction.clone_root is required when git history extraction is enabled.")
+    allowed_commit_message_modes = {"full", "subject_only", "none"}
+    if config.git_history_extraction.commit_message_mode not in allowed_commit_message_modes:
+        raise ConfigError(f"git_history_extraction.commit_message_mode must be one of {sorted(allowed_commit_message_modes)}.")
+    allowed_fast_mode_windows = {
+        "issue_collection",
+        "participation_analysis",
+        "explicit_history_dates",
+    }
+    if config.git_history_extraction.fast_mode_date_window not in allowed_fast_mode_windows:
+        raise ConfigError(f"git_history_extraction.fast_mode_date_window must be one of {sorted(allowed_fast_mode_windows)}.")
+    if (config.git_history_extraction.max_commit_message_chars is not None
+        and config.git_history_extraction.max_commit_message_chars <= 0):
+        raise ConfigError("git_history_extraction.max_commit_message_chars must be > 0 when provided.")
 
 def resolve_config_paths(config):
     resolved = copy.deepcopy(config)

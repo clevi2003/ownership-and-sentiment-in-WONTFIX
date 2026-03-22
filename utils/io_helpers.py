@@ -24,6 +24,38 @@ def save_json(data, output_path, use_gzip=False, indent=2):
     return 1
 
 
+def append_jsonl_row(row, output_path, use_gzip=False):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if use_gzip and output_path.suffix != ".gz":
+        output_path = output_path.with_suffix(output_path.suffix + ".gz")
+
+    line = json.dumps(row, ensure_ascii=False) + "\n"
+
+    if output_path.suffix == ".gz":
+        with gzip.open(output_path, "at", encoding="utf-8") as handle:
+            handle.write(line)
+    else:
+        with output_path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+
+    return 1
+
+
+def reset_output_file(output_path, use_gzip=False):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if use_gzip and output_path.suffix != ".gz":
+        output_path = output_path.with_suffix(output_path.suffix + ".gz")
+
+    if output_path.exists():
+        output_path.unlink()
+
+    return output_path
+
+
 def load_repo_list(repo_list_path):
     repo_list_path = Path(repo_list_path)
     if not repo_list_path.exists():

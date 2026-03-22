@@ -34,6 +34,17 @@ class BaseRepoChunkWriter:
         )
         self._single_tables_written.add(table_name)
 
+    @staticmethod
+    def dedupe_rows(rows, key_fields):
+        seen = set()
+        deduped = []
+        for row in rows:
+            key = tuple(row[field] for field in key_fields)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(row)
+        return deduped
+
     def add_row(self, table_name, row):
         if table_name not in self._buffers:
             raise ValueError(f"Table '{table_name}' is not registered as a chunked table.")
@@ -104,3 +115,17 @@ class PullRequestRepoChunkWriter(BaseRepoChunkWriter):
 
     def add_pr_commit_row(self, row):
         self.add_row("pr_commit_links", row)
+
+
+class CommitHistoryRepoChunkWriter(BaseRepoChunkWriter):
+    """ Commit history specific writer"""
+    def __init__(self, *, config, repo_dir, batch_size=5000):
+        super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
+        self.register_chunked_table("commits", "commits")
+        self.register_chunked_table("commit_files", "commit_files")
+
+    def add_commit_row(self, row):
+        self.add_row("commits", row)
+
+    def add_commit_file_row(self, row):
+        self.add_row("commit_files", row)
