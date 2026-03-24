@@ -129,3 +129,14 @@ class CommitHistoryRepoChunkWriter(BaseRepoChunkWriter):
 
     def add_commit_file_row(self, row):
         self.add_row("commit_files", row)
+
+
+class IssueFileLinkRepoChunkWriter(BaseRepoChunkWriter):
+    """Issue file linking specific writer"""
+
+    def __init__(self, *, config, repo_dir, batch_size=5000):
+        super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
+        self.register_chunked_table("issue_file_links", "issue_file_links")
+
+    def add_issue_file_link_row(self, row):
+        self.add_row("issue_file_links", row)

@@ -320,13 +320,22 @@ class PrCommitLinkConfig:
     enabled: bool
     source: str
 
+# @dataclass
+# class IssueFileLinkConfig:
+#     enabled: bool
+#     allowed_link_sources: list
+#     confidence_levels: dict
+#     allow_rq_specific_missing_links: bool
+#     notes: list = field(default_factory=list)
 @dataclass
 class IssueFileLinkConfig:
     enabled: bool
-    allowed_link_sources: list
-    confidence_levels: dict
-    allow_rq_specific_missing_links: bool
-    notes: list = field(default_factory=list)
+    max_repos_per_run: int
+    resume_mode: str
+    write_batch_size: int
+    include_comment_text_fallback: bool
+    require_repo_file_match_for_text_links: bool
+    allow_unique_basename_match: bool
 
 @dataclass
 class LinkageConfig:
@@ -801,13 +810,22 @@ def _parse_linkage(data):
             enabled=_get_required(pr_commit_d, "enabled", "linkage.pr_commit"),
             source=_get_required(pr_commit_d, "source", "linkage.pr_commit"),
         ),
+        # issue_file=IssueFileLinkConfig(
+        #     enabled=_get_required(issue_file_d, "enabled", "linkage.issue_file"),
+        #     allowed_link_sources=_require_list(_get_required(issue_file_d, "allowed_link_sources", "linkage.issue_file"), "linkage.issue_file.allowed_link_sources"),
+        #     confidence_levels=_require_dict(_get_required(issue_file_d, "confidence_levels", "linkage.issue_file"), "linkage.issue_file.confidence_levels"),
+        #     allow_rq_specific_missing_links=_get_required(issue_file_d, "allow_rq_specific_missing_links", "linkage.issue_file"),
+        #     notes=_get_optional(issue_file_d, "notes", []),
+        # ),
         issue_file=IssueFileLinkConfig(
             enabled=_get_required(issue_file_d, "enabled", "linkage.issue_file"),
-            allowed_link_sources=_require_list(_get_required(issue_file_d, "allowed_link_sources", "linkage.issue_file"), "linkage.issue_file.allowed_link_sources"),
-            confidence_levels=_require_dict(_get_required(issue_file_d, "confidence_levels", "linkage.issue_file"), "linkage.issue_file.confidence_levels"),
-            allow_rq_specific_missing_links=_get_required(issue_file_d, "allow_rq_specific_missing_links", "linkage.issue_file"),
-            notes=_get_optional(issue_file_d, "notes", []),
-        ),
+            max_repos_per_run=_get_required(issue_file_d, "max_repos_per_run", "linkage.issue_file"),
+            resume_mode=_get_required(issue_file_d, "resume_mode", "linkage.issue_file"),
+            write_batch_size=_get_required(issue_file_d, "write_batch_size", "linkage.issue_file"),
+            include_comment_text_fallback=_get_required(issue_file_d, "include_comment_text_fallback", "linkage.issue_file"),
+            require_repo_file_match_for_text_links=_get_required(issue_file_d, "require_repo_file_match_for_text_links", "linkage.issue_file"),
+            allow_unique_basename_match=_get_required(issue_file_d, "allow_unique_basename_match", "linkage.issue_file")
+        )
     )
 
 def _parse_identity_resolution(data):
