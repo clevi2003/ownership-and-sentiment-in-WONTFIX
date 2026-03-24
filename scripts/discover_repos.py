@@ -547,11 +547,9 @@ def intersect_candidate_and_wontfix_repos(candidate_rows, wontfix_rows, config, 
     candidate_map = {}
     for row in candidate_rows:
         candidate_map[row["full_name"]] = row
-
     wontfix_map = {}
     for row in wontfix_rows:
         wontfix_map[row["full_name"]] = row
-
     final_rows = []
 
     for repo_full_name, candidate in candidate_map.items():
@@ -565,27 +563,127 @@ def intersect_candidate_and_wontfix_repos(candidate_rows, wontfix_rows, config, 
         merged["example_issue_urls"] = wontfix_map[repo_full_name]["example_issue_urls"]
         merged["issue_hit_count_observed"] = wontfix_map[repo_full_name]["issue_hit_count_observed"]
         merged["screening_status"] = "included_candidate"
-
         final_rows.append(merged)
 
-    final_rows = apply_row_limit(
-        final_rows,
-        config.repo_discovery.final_repo_limit,
-        logger,
-        "final_repo_limit",
-    )
-
-    logger.info(
-        "Intersection complete. Structural candidates=%s | WONTFIX repos=%s | Final included=%s",
-        len(candidate_rows),
-        len(wontfix_rows),
-        len(final_rows),
-    )
+    logger.info("Intersection complete. Structural candidates=%s | WONTFIX repos=%s | Intersected repos=%s",
+                len(candidate_rows),
+                len(wontfix_rows),
+                len(final_rows))
 
     return final_rows
 
+def get_repo_approx_wontfix_issue_count(session, headers, config, logger, repo_full_name):
+    count_config = config.repo_discovery.final_wontfix_count_screen
+    search_ranges = build_search_ranges(config)
+    wontfix_variants = get_wontfix_variants(config)
 
-def write_outputs(config, candidate_rows, wontfix_rows, final_rows, query_run_rows, logger):
+    raw_count_dir = Path(config.paths.raw_root) / "github_api" / "final_repo_wontfix_count_screen"
+    raw_count_dir.mkdir(parents=True, exist_ok=True)
+    url = f"{config.github.api_base_url}/search/issues"
+
+    approx_count = 0
+    count_query_rows = []
+    safe_repo_name = repo_full_name.replace("/", "__")
+
+    for variant in wontfix_variants:
+        safe_variant = variant.replace(" ", "_").replace("/", "_")
+        for date_range in search_ranges:
+            if count_config.count_mode == "repo_search_total_count":
+                query = (f'repo:{repo_full_name} is:issue archived:false '
+                         f'label:"{variant}" created:{date_range["start"]}..{date_range["end"]}')
+
+                params = {"q": query,
+                          "sort": "created",
+                          "order": "desc",
+                          "per_page": 1,
+                          "page": 1}
+
+                logger.info(
+                    "Final WONTFIX count screen | repo=%s | variant='%s' | range=%s",
+                    repo_full_name,
+                    variant,
+                    date_range["year"],
+                )
+
+                response = make_request(session, url, headers, params, config, logger)
+                payload = response.json()
+                raw_path = (raw_count_dir/ f"{safe_repo_name}__{safe_variant}__{date_range['year']}.json")
+                save_json(payload, raw_path, use_gzip=config.storage.compression.raw_json_gzip)
+
+                total_count = payload.get("total_count", 0) or 0
+                approx_count += total_count
+
+                count_query_rows.append({"repo_full_name": repo_full_name,
+                                        "label_variant": variant,
+                                        "range_label": date_range["year"],
+                                        "start_date": date_range["start"],
+                                        "end_date": date_range["end"],
+                                        "approx_count_component": total_count,
+                                        "count_mode": count_config.count_mode})
+            else:
+                raise ValueError(f"Unsupported final WONTFIX count mode: {count_config.count_mode}")
+    return approx_count, count_query_rows
+
+
+def apply_final_wontfix_count_screen(intersected_rows, config, logger):
+    count_config = config.repo_discovery.final_wontfix_count_screen
+
+    if not count_config.enabled:
+        logger.info("Phase 4: Final WONTFIX count screen disabled. Applying final_repo_limit directly.")
+        final_rows = apply_row_limit(intersected_rows,
+                                    config.repo_discovery.final_repo_limit,
+                                    logger,
+                                    "final_repo_limit")
+        return final_rows, []
+
+    logger.info("Phase 4: Running final WONTFIX count screen on intersected repos before final limit.")
+
+    session = build_session(config)
+    headers = get_github_headers(config)
+    screened_rows = []
+    count_query_rows = []
+
+    for row in intersected_rows:
+        repo_full_name = row["full_name"]
+        try:
+            approx_count, repo_query_rows = get_repo_approx_wontfix_issue_count(session=session,
+                                                                                headers=headers,
+                                                                                config=config,
+                                                                                logger=logger,
+                                                                                repo_full_name=repo_full_name)
+            count_query_rows.extend(repo_query_rows)
+            enriched = dict(row)
+            enriched["approx_wontfix_issue_count"] = approx_count
+            enriched["approx_wontfix_issue_count_mode"] = count_config.count_mode
+            if approx_count < count_config.min_approx_wontfix_issue_count:
+                logger.info("Excluding repo after final WONTFIX count screen | repo=%s | approx_count=%s | threshold=%s",
+                            repo_full_name,
+                            approx_count,
+                            count_config.min_approx_wontfix_issue_count)
+                continue
+            screened_rows.append(enriched)
+
+        except Exception:
+            logger.exception("Failed during final WONTFIX count screen for repo %s", repo_full_name)
+
+    if count_config.sort_descending_before_final_limit:
+        screened_rows.sort(key=lambda row: (row.get("approx_wontfix_issue_count", 0),
+                                            row.get("issue_hit_count_observed", 0),
+                                            row.get("stargazers_count", 0)),
+                          reverse=True)
+
+    final_rows = apply_row_limit(screened_rows,
+                                 config.repo_discovery.final_repo_limit,
+                                 logger,
+                                 "final_repo_limit")
+
+    logger.info("Final WONTFIX count screen complete. Intersected=%s | Passed threshold=%s | Final included=%s",
+                len(intersected_rows),
+                len(screened_rows),
+                len(final_rows))
+    return final_rows, count_query_rows
+
+def write_outputs(config, candidate_rows, wontfix_rows, final_rows, query_run_rows, final_count_query_rows, logger):
     processed_root = Path(config.paths.processed_root)
     processed_root.mkdir(parents=True, exist_ok=True)
 
@@ -593,32 +691,41 @@ def write_outputs(config, candidate_rows, wontfix_rows, final_rows, query_run_ro
     included_output = Path(config.outputs.repo_included_list)
     wontfix_repo_output = processed_root / "repos_with_wontfix_issue.csv"
     issue_query_summary_output = processed_root / "wontfix_issue_search_runs.csv"
+    final_count_summary_output = processed_root / "final_wontfix_count_screen_runs.csv"
 
     candidate_df = pd.DataFrame(candidate_rows)
     wontfix_df = pd.DataFrame(wontfix_rows)
     final_df = pd.DataFrame(final_rows)
     query_df = pd.DataFrame(query_run_rows)
+    final_count_df = pd.DataFrame(final_count_query_rows)
 
     candidate_df.to_csv(candidate_output, index=False)
     wontfix_df.to_csv(wontfix_repo_output, index=False)
     final_df.to_csv(included_output, index=False)
     query_df.to_csv(issue_query_summary_output, index=False)
+    final_count_df.to_csv(final_count_summary_output, index=False)
 
     logger.info("Wrote candidate repos to %s", candidate_output)
     logger.info("Wrote repos with WONTFIX issues to %s", wontfix_repo_output)
     logger.info("Wrote included repo list to %s", included_output)
     logger.info("Wrote WONTFIX issue search run summary to %s", issue_query_summary_output)
+    logger.info("Wrote final WONTFIX count screen run summary to %s", final_count_summary_output)
 
 
 def write_summary_report(config, candidate_rows, wontfix_rows, final_rows, logger):
     summary_path = Path(config.logging.qa_log_dir) / "repo_discovery_summary.csv"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [{"metric": "candidate_repo_rows", "value": len(candidate_rows)},
+            {"metric": "repos_with_wontfix_issue", "value": len(wontfix_rows)},
+            {"metric": "included_repo_rows", "value": len(final_rows)},]
 
-    rows = [
-        {"metric": "candidate_repo_rows", "value": len(candidate_rows)},
-        {"metric": "repos_with_wontfix_issue", "value": len(wontfix_rows)},
-        {"metric": "included_repo_rows", "value": len(final_rows)},
-    ]
+    if final_rows:
+        approx_counts = [row.get("approx_wontfix_issue_count", 0)
+                        for row in final_rows
+                        if row.get("approx_wontfix_issue_count") is not None]
+        if approx_counts:
+            rows.extend([{"metric": "included_repo_min_approx_wontfix_issue_count", "value": min(approx_counts)},
+                         {"metric": "included_repo_max_approx_wontfix_issue_count", "value": max(approx_counts)},])
     write_csv_rows(rows, summary_path, fieldnames=["metric", "value"])
     logger.info("Wrote repo discovery summary report to %s", summary_path)
 
@@ -627,7 +734,6 @@ def main():
     config = load_study_config(DEFAULT_CONFIG_PATH)
     ensure_project_directories(config)
     logger = setup_logger(config)
-
     logger.info("Loaded config from %s", DEFAULT_CONFIG_PATH)
 
     allowlist = config.repo_selection.discovery_filters.repos_allowlist
@@ -638,10 +744,15 @@ def main():
         candidate_rows = discover_candidate_repos(config, logger)
         wontfix_rows, query_run_rows = search_wontfix_repos_globally(config, logger)
 
-    final_rows = intersect_candidate_and_wontfix_repos(candidate_rows, wontfix_rows, config, logger)
-    write_outputs(config, candidate_rows, wontfix_rows, final_rows, query_run_rows, logger)
+    intersected_rows = intersect_candidate_and_wontfix_repos(candidate_rows,
+                                                            wontfix_rows,
+                                                            config,
+                                                            logger)
+    final_rows, final_count_query_rows = apply_final_wontfix_count_screen(intersected_rows,
+                                                                            config,
+                                                                            logger)
+    write_outputs(config, candidate_rows, wontfix_rows, final_rows, query_run_rows, final_count_query_rows, logger)
     write_summary_report(config, candidate_rows, wontfix_rows, final_rows, logger)
-
     logger.info("Repository discovery pipeline complete.")
 
 

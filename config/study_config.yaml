@@ -41,14 +41,14 @@ github:
 
 study_windows:
   repo_activity:
-    activity_cutoff_date: "2021-01-01"
+    activity_cutoff_date: "2024-01-01"
     use_last_push_date: true
   issue_collection:
-    start_date: "2021-01-01"
+    start_date: "2024-01-01"
     end_date: "2025-12-31"
     include_open_issues_after_end_date: true
   participation_analysis:
-    start_date: "2021-01-01"
+    start_date: "2024-01-01"
     end_date: "2025-12-31"
     time_window_unit: "month"
 
@@ -56,22 +56,23 @@ repo_selection:
   discover_repositories: true
   inclusion_criteria:
     visibility: "public"
-    min_stars: 100
+    min_stars: 500
     exclude_forks: true
     exclude_archived: true
     require_recent_activity: true
     require_at_least_one_wontfix_issue: true
   discovery_filters:
-    languages: []
+    languages:
+      - "Python"
+      - "JavaScript"
+      - "TypeScript"
     owners_allowlist: []
     owners_blocklist: []
-    # repos_allowlist: []
-    repos_allowlist:
-      - "nextcloud/docker"
+    repos_allowlist: []
     repos_blocklist: []
   activity_definition:
     field: "pushed_at"
-    cutoff_date: "2021-01-01"
+    cutoff_date: "2024-01-01"
   archival_policy:
     if_archive_status_unavailable: "keep_and_flag"
   fork_policy:
@@ -83,11 +84,16 @@ repo_selection:
     track_template: true
 
 repo_discovery:
-  max_repo_search_pages: 1
-  max_issue_search_pages_per_query: 1
-  split_wontfix_issue_search_by_year: false
-  candidate_repo_limit: 10
-  final_repo_limit: 3
+  max_repo_search_pages: 3
+  max_issue_search_pages_per_query: 2
+  split_wontfix_issue_search_by_year: true
+  candidate_repo_limit: 50
+  final_repo_limit: 12
+  final_wontfix_count_screen:
+    enabled: true
+    count_mode: "repo_search_total_count"
+    min_approx_wontfix_issue_count: 10
+    sort_descending_before_final_limit: true
 
 label_normalization:
   case_sensitive: false

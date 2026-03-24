@@ -157,12 +157,20 @@ class RepoSelectionConfig:
     repo_status_flags: RepoStatusFlagsConfig
 
 @dataclass
+class FinalWontfixCountScreenConfig:
+    enabled: bool
+    count_mode: str
+    min_approx_wontfix_issue_count: int
+    sort_descending_before_final_limit: bool
+
+@dataclass
 class RepoDiscoveryConfig:
     max_repo_search_pages: int
     max_issue_search_pages_per_query: int
     split_wontfix_issue_search_by_year: bool
     candidate_repo_limit: int
     final_repo_limit: int
+    final_wontfix_count_screen: FinalWontfixCountScreenConfig
 
 @dataclass
 class CanonicalLabelConfig:
@@ -616,6 +624,10 @@ def _parse_repo_selection(data):
 def _parse_repo_discovery(data):
     section = "repo_discovery"
     d = _require_dict(_get_required(data, "repo_discovery", "root"), section)
+    final_count_d = _require_dict(
+        _get_required(d, "final_wontfix_count_screen", section),
+        "repo_discovery.final_wontfix_count_screen",
+    )
 
     return RepoDiscoveryConfig(
         max_repo_search_pages=_get_required(d, "max_repo_search_pages", section),
@@ -623,6 +635,28 @@ def _parse_repo_discovery(data):
         split_wontfix_issue_search_by_year=_get_required(d, "split_wontfix_issue_search_by_year", section),
         candidate_repo_limit=_get_required(d, "candidate_repo_limit", section),
         final_repo_limit=_get_required(d, "final_repo_limit", section),
+        final_wontfix_count_screen=FinalWontfixCountScreenConfig(
+            enabled=_get_required(
+                final_count_d,
+                "enabled",
+                "repo_discovery.final_wontfix_count_screen",
+            ),
+            count_mode=_get_required(
+                final_count_d,
+                "count_mode",
+                "repo_discovery.final_wontfix_count_screen",
+            ),
+            min_approx_wontfix_issue_count=_get_required(
+                final_count_d,
+                "min_approx_wontfix_issue_count",
+                "repo_discovery.final_wontfix_count_screen",
+            ),
+            sort_descending_before_final_limit=_get_required(
+                final_count_d,
+                "sort_descending_before_final_limit",
+                "repo_discovery.final_wontfix_count_screen",
+            ),
+        ),
     )
 
 def _parse_canonical_label(data, section_name):
@@ -1035,6 +1069,13 @@ def validate_study_config(config):
         raise ConfigError(
             "repo_discovery.final_repo_limit should be less than or equal to repo_discovery.candidate_repo_limit."
         )
+    allowed_wontfix_count_modes = {"repo_search_total_count"}
+    if config.repo_discovery.final_wontfix_count_screen.count_mode not in allowed_wontfix_count_modes:
+        raise ConfigError("repo_discovery.final_wontfix_count_screen.count_mode must be one of "
+                          f"{sorted(allowed_wontfix_count_modes)}.")
+
+    if config.repo_discovery.final_wontfix_count_screen.min_approx_wontfix_issue_count < 0:
+        raise ConfigError("repo_discovery.final_wontfix_count_screen.min_approx_wontfix_issue_count must be >= 0.")
 
     if config.github.pagination.per_page <= 0:
         raise ConfigError("github.pagination.per_page must be > 0.")
