@@ -23,7 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from config.study_config_loader import ensure_project_directories, load_study_config
 from utils.github_api import build_session, fetch_repository_metadata, get_github_headers
 from utils.io_helpers import load_repo_list, write_processed_table, append_jsonl_row, reset_output_file
-from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint
+from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint, sanitize_repo_name
 from utils.chunk_writers import CommitHistoryRepoChunkWriter
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
@@ -136,17 +136,6 @@ def trim_commit_message(value, config):
     return value[:max_chars]
 
 
-def get_storage_option(config, field_name, default_value):
-    if not hasattr(config, "storage"):
-        return default_value
-    if not hasattr(config.storage, field_name):
-        return default_value
-    value = getattr(config.storage, field_name)
-    if value is None:
-        return default_value
-    return value
-
-
 def new_repo_result(repo_full_name, repo_id=None):
     return {
         "repo_full_name": repo_full_name,
@@ -163,10 +152,6 @@ def new_repo_result(repo_full_name, repo_id=None):
         "raw_commit_files_written": 0,
         "error_message": "",
     }
-
-
-def safe_repo_dir_name(repo_full_name):
-    return str(repo_full_name).replace("/", "__")
 
 
 def run_subprocess(command, *, cwd=None):
@@ -215,22 +200,22 @@ def stream_subprocess_lines(command, *, cwd=None):
 def clone_or_update_repo(config, logger, repo_full_name):
     clone_root = Path(config.git_history_extraction.clone_root)
     clone_root.mkdir(parents=True, exist_ok=True)
-
-    repo_dir = clone_root / safe_repo_dir_name(repo_full_name)
+    safe_repo = sanitize_repo_name(repo_full_name)
+    repo_clone_dir = clone_root / safe_repo
     clone_performed = False
     clone_refreshed = False
 
-    if not repo_dir.exists():
+    if not repo_clone_dir.exists():
         clone_url = f"https://github.com/{repo_full_name}.git"
-        logger.info("Cloning repo %s into %s", repo_full_name, repo_dir)
-        run_subprocess(["git", "clone", clone_url, str(repo_dir)])
+        logger.info("Cloning repo %s into %s", repo_full_name, repo_clone_dir)
+        run_subprocess(["git", "clone", clone_url, str(repo_clone_dir)])
         clone_performed = True
-        return repo_dir, clone_performed, clone_refreshed
+        return repo_clone_dir, clone_performed, clone_refreshed
 
     logger.info("Refreshing existing clone for %s", repo_full_name)
-    run_subprocess(["git", "fetch", "--all", "--tags", "--prune"], cwd=repo_dir)
+    run_subprocess(["git", "fetch", "--all", "--tags", "--prune"], cwd=repo_clone_dir)
     clone_refreshed = True
-    return repo_dir, clone_performed, clone_refreshed
+    return repo_clone_dir, clone_performed, clone_refreshed
 
 
 def resolve_repo_id(session, headers, config, logger, repo_row):
@@ -528,11 +513,6 @@ def make_raw_commit_row(record, repo_id, repo_full_name):
     }
 
 
-def get_partitioned_output_root(output_path):
-    output_path = Path(output_path)
-    return output_path.with_suffix("").with_name(output_path.stem + "_dataset")
-
-
 def collect_repo_part_files(batch_root, part_glob):
     repo_part_map = {}
     for repo_dir in sorted(batch_root.iterdir()):
@@ -561,40 +541,6 @@ def merge_part_files(part_paths, sort_columns=None):
     return merged
 
 
-def write_partitioned_repo_dataset(repo_part_map, dataset_root, *, dedupe_subset=None, sort_columns=None, config=None, logger=None):
-    dataset_root = Path(dataset_root)
-    if dataset_root.exists():
-        import shutil
-        shutil.rmtree(dataset_root)
-    dataset_root.mkdir(parents=True, exist_ok=True)
-
-    for repo_partition, part_paths in repo_part_map.items():
-        merged_df = merge_part_files(part_paths, sort_columns=sort_columns)
-        if merged_df.empty:
-            continue
-        if dedupe_subset:
-            existing = [col for col in dedupe_subset if col in merged_df.columns]
-            if existing:
-                merged_df = merged_df.drop_duplicates(subset=existing)
-
-        partition_dir = dataset_root / f"repo_full_name={repo_partition}"
-        partition_dir.mkdir(parents=True, exist_ok=True)
-        output_path = partition_dir / "part-00001.parquet"
-        merged_df.to_parquet(
-            output_path,
-            index=False,
-            compression=config.storage.compression.parquet_compression,
-        )
-
-        if logger is not None:
-            logger.info(
-                "Wrote partition | dataset=%s | repo_partition=%s | rows=%s",
-                dataset_root.name,
-                repo_partition,
-                len(merged_df),
-            )
-
-
 def write_summary_csv(summary_rows, output_path):
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -610,7 +556,7 @@ def write_run_manifest(config, repo_rows, summary_rows):
         "repo_count_processed": len(summary_rows),
         "completed_repo_count": sum(1 for row in summary_rows if row.get("status") == "completed"),
         "failed_repo_count": sum(1 for row in summary_rows if row.get("status") == "failed"),
-        "processed_merge_mode": get_storage_option(config, "processed_merge_mode", "single_parquet"),
+        "processed_merge_mode": "single_parquet",
         "generated_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary_rows": summary_rows,
         "git_history_fast_mode": get_git_history_option(config, "fast_mode", False),
@@ -627,57 +573,28 @@ def merge_commit_batches(config, logger):
     if not batch_root.exists():
         logger.warning("Commit-history batch root does not exist: %s", batch_root)
         return
-    dedupe_subset = ["repo_full_name", "commit_sha", "file_path", "old_file_path", "change_type"]
-    merge_mode = get_storage_option(config, "processed_merge_mode", "partitioned_dataset")
+
     commit_repo_parts = collect_repo_part_files(batch_root, "commits_part_*.parquet")
     commit_file_repo_parts = collect_repo_part_files(batch_root, "commit_files_part_*.parquet")
-    if merge_mode == "single_parquet":
-        logger.info("Using old single-parquet merge mode for commit-history outputs.")
+    commit_parts = [path for paths in commit_repo_parts.values() for path in paths]
+    commit_file_parts = [path for paths in commit_file_repo_parts.values() for path in paths]
 
-        commit_parts = [path for paths in commit_repo_parts.values() for path in paths]
-        commit_file_parts = [path for paths in commit_file_repo_parts.values() for path in paths]
-        commit_df = merge_part_files(
-            commit_parts,
-            sort_columns=["repo_full_name", "commit_timestamp", "commit_sha"],
-        )
-        commit_file_df = merge_part_files(
-            commit_file_parts,
-            sort_columns=["repo_full_name", "commit_sha", "file_path", "change_type"],
-        )
+    commit_df = merge_part_files(commit_parts, sort_columns=["repo_full_name", "commit_timestamp", "commit_sha"])
+    commit_file_df = merge_part_files(commit_file_parts, sort_columns=["repo_full_name", "commit_sha", "file_path", "change_type"])
 
-        if not commit_df.empty:
-            commit_df = commit_df.drop_duplicates(subset=dedupe_subset)
-            write_processed_table(commit_df, Path(config.outputs.commits_table), config)
-            logger.info("Wrote merged commits table to %s", config.outputs.commits_table)
-        if not commit_file_df.empty:
-            commit_file_df = commit_file_df.drop_duplicates(
-                subset=dedupe_subset,
-            )
-            write_processed_table(commit_file_df, Path(config.outputs.commit_files_table), config)
-            logger.info("Wrote merged commit-files table to %s", config.outputs.commit_files_table)
-        return
+    if not commit_df.empty:
+        commit_df = commit_df.drop_duplicates(subset=["repo_full_name", "commit_sha"])
+        write_processed_table(commit_df, Path(config.outputs.commits_table), config)
+        logger.info("Wrote merged commits table to %s", config.outputs.commits_table)
+    else:
+        logger.warning("No commit parts found to merge.")
 
-    logger.info("Using partitioned dataset merge mode for commit-history outputs.")
-    commit_dataset_root = get_partitioned_output_root(config.outputs.commits_table)
-    commit_file_dataset_root = get_partitioned_output_root(config.outputs.commit_files_table)
-    write_partitioned_repo_dataset(
-        commit_repo_parts,
-        commit_dataset_root,
-        dedupe_subset=dedupe_subset,
-        sort_columns=["repo_full_name", "commit_timestamp", "commit_sha"],
-        config=config,
-        logger=logger,
-    )
-    write_partitioned_repo_dataset(
-        commit_file_repo_parts,
-        commit_file_dataset_root,
-        dedupe_subset=dedupe_subset,
-        sort_columns=["repo_full_name", "commit_sha", "file_path", "change_type"],
-        config=config,
-        logger=logger,
-    )
-    logger.info("Wrote partitioned commit dataset to %s", commit_dataset_root)
-    logger.info("Wrote partitioned commit-files dataset to %s", commit_file_dataset_root)
+    if not commit_file_df.empty:
+        commit_file_df = commit_file_df.drop_duplicates(subset=["repo_full_name", "commit_sha", "file_path", "old_file_path", "change_type"])
+        write_processed_table(commit_file_df, Path(config.outputs.commit_files_table), config)
+        logger.info("Wrote merged commit-files table to %s", config.outputs.commit_files_table)
+    else:
+        logger.warning("No commit-file parts found to merge.")
 
 
 def process_repo(session, headers, config, logger, repo_row):
@@ -695,7 +612,8 @@ def process_repo(session, headers, config, logger, repo_row):
     result = new_repo_result(repo_full_name, repo_id=repo_id)
     raw_root = get_repo_output_root(config, RAW_FOLDER_NAME, repo_full_name, raw_source="git_logs")
     batch_size = get_git_runtime_option(config, "write_batch_size", 5000)
-    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / safe_repo_dir_name(repo_full_name)
+    safe_repo = sanitize_repo_name(repo_full_name)
+    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / safe_repo
     writer = CommitHistoryRepoChunkWriter(config=config, repo_dir=repo_dir, batch_size=batch_size)
 
     local_repo_path, clone_performed, clone_refreshed = clone_or_update_repo(config, logger, repo_full_name)

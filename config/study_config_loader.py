@@ -414,6 +414,8 @@ class OutputsConfig:
     pull_requests_table: str
     commits_table: str
     commit_files_table: str
+    comparison_issue_set_table: str
+    wontfix_issue_set_table: str
     contributor_identity_table: str
     issue_pr_links_table: str
     pr_commit_links_table: str
@@ -421,6 +423,7 @@ class OutputsConfig:
     extraction_summary_csv: str
     run_manifest_json: str
     resolved_config_snapshot_yaml: str
+    comparison_issue_qa_summary_csv: str
 
 @dataclass
 class CheckpointingConfig:
@@ -828,38 +831,53 @@ def _parse_comparison_set(data):
 def _parse_linkage(data):
     section = "linkage"
     d = _require_dict(_get_required(data, "linkage", "root"), section)
-
     issue_pr_d = _require_dict(_get_required(d, "issue_pr", section), "linkage.issue_pr")
     pr_commit_d = _require_dict(_get_required(d, "pr_commit", section), "linkage.pr_commit")
-    issue_file_d = _require_dict(_get_required(d, "issue_file", section), "linkage.issue_file")
+    issue_file_section = "issue_file_linking"
+    issue_file_d = _require_dict(_get_required(data, "issue_file_linking", "root"), issue_file_section)
 
     return LinkageConfig(
         issue_pr=IssuePrLinkConfig(
             enabled=_get_required(issue_pr_d, "enabled", "linkage.issue_pr"),
-            allowed_link_sources=_require_list(_get_required(issue_pr_d, "allowed_link_sources", "linkage.issue_pr"), "linkage.issue_pr.allowed_link_sources"),
-            confidence_levels=_require_dict(_get_required(issue_pr_d, "confidence_levels", "linkage.issue_pr"), "linkage.issue_pr.confidence_levels"),
-            keep_low_confidence_links=_get_required(issue_pr_d, "keep_low_confidence_links", "linkage.issue_pr"),
+            allowed_link_sources=_require_list(
+                _get_required(issue_pr_d, "allowed_link_sources", "linkage.issue_pr"),
+                "linkage.issue_pr.allowed_link_sources",
+            ),
+            confidence_levels=_require_dict(
+                _get_required(issue_pr_d, "confidence_levels", "linkage.issue_pr"),
+                "linkage.issue_pr.confidence_levels",
+            ),
+            keep_low_confidence_links=_get_required(
+                issue_pr_d,
+                "keep_low_confidence_links",
+                "linkage.issue_pr",
+            ),
         ),
         pr_commit=PrCommitLinkConfig(
             enabled=_get_required(pr_commit_d, "enabled", "linkage.pr_commit"),
             source=_get_required(pr_commit_d, "source", "linkage.pr_commit"),
         ),
-        # issue_file=IssueFileLinkConfig(
-        #     enabled=_get_required(issue_file_d, "enabled", "linkage.issue_file"),
-        #     allowed_link_sources=_require_list(_get_required(issue_file_d, "allowed_link_sources", "linkage.issue_file"), "linkage.issue_file.allowed_link_sources"),
-        #     confidence_levels=_require_dict(_get_required(issue_file_d, "confidence_levels", "linkage.issue_file"), "linkage.issue_file.confidence_levels"),
-        #     allow_rq_specific_missing_links=_get_required(issue_file_d, "allow_rq_specific_missing_links", "linkage.issue_file"),
-        #     notes=_get_optional(issue_file_d, "notes", []),
-        # ),
         issue_file=IssueFileLinkConfig(
-            enabled=_get_required(issue_file_d, "enabled", "linkage.issue_file"),
-            max_repos_per_run=_get_required(issue_file_d, "max_repos_per_run", "linkage.issue_file"),
-            resume_mode=_get_required(issue_file_d, "resume_mode", "linkage.issue_file"),
-            write_batch_size=_get_required(issue_file_d, "write_batch_size", "linkage.issue_file"),
-            include_comment_text_fallback=_get_required(issue_file_d, "include_comment_text_fallback", "linkage.issue_file"),
-            require_repo_file_match_for_text_links=_get_required(issue_file_d, "require_repo_file_match_for_text_links", "linkage.issue_file"),
-            allow_unique_basename_match=_get_required(issue_file_d, "allow_unique_basename_match", "linkage.issue_file")
-        )
+            enabled=_get_required(issue_file_d, "enabled", issue_file_section),
+            max_repos_per_run=_get_required(issue_file_d, "max_repos_per_run", issue_file_section),
+            resume_mode=_get_required(issue_file_d, "resume_mode", issue_file_section),
+            write_batch_size=_get_required(issue_file_d, "write_batch_size", issue_file_section),
+            include_comment_text_fallback=_get_required(
+                issue_file_d,
+                "include_comment_text_fallback",
+                issue_file_section,
+            ),
+            require_repo_file_match_for_text_links=_get_required(
+                issue_file_d,
+                "require_repo_file_match_for_text_links",
+                issue_file_section,
+            ),
+            allow_unique_basename_match=_get_required(
+                issue_file_d,
+                "allow_unique_basename_match",
+                issue_file_section,
+            ),
+        ),
     )
 
 def _parse_identity_resolution(data):
@@ -935,13 +953,19 @@ def _parse_outputs(data):
         pull_requests_table=_get_required(d, "pull_requests_table", section),
         commits_table=_get_required(d, "commits_table", section),
         commit_files_table=_get_required(d, "commit_files_table", section),
+
+        comparison_issue_set_table=_get_required(d, "comparison_issue_set_table", section),
+        wontfix_issue_set_table=_get_required(d, "wontfix_issue_set_table", section),
+
         contributor_identity_table=_get_required(d, "contributor_identity_table", section),
         issue_pr_links_table=_get_required(d, "issue_pr_links_table", section),
         pr_commit_links_table=_get_required(d, "pr_commit_links_table", section),
         issue_file_links_table=_get_required(d, "issue_file_links_table", section),
+
         extraction_summary_csv=_get_required(d, "extraction_summary_csv", section),
         run_manifest_json=_get_required(d, "run_manifest_json", section),
         resolved_config_snapshot_yaml=_get_required(d, "resolved_config_snapshot_yaml", section),
+        comparison_issue_qa_summary_csv=_get_required(d, "comparison_issue_qa_summary_csv", section),
     )
 
 def _parse_checkpointing(data):
@@ -1192,6 +1216,8 @@ def resolve_config_paths(config):
     resolved.outputs.pull_requests_table = _resolve_path(base, resolved.outputs.pull_requests_table)
     resolved.outputs.commits_table = _resolve_path(base, resolved.outputs.commits_table)
     resolved.outputs.commit_files_table = _resolve_path(base, resolved.outputs.commit_files_table)
+    resolved.outputs.comparison_issue_set_table = _resolve_path(base, resolved.outputs.comparison_issue_set_table)
+    resolved.outputs.wontfix_issue_set_table = _resolve_path(base, resolved.outputs.wontfix_issue_set_table)
     resolved.outputs.contributor_identity_table = _resolve_path(base, resolved.outputs.contributor_identity_table)
     resolved.outputs.issue_pr_links_table = _resolve_path(base, resolved.outputs.issue_pr_links_table)
     resolved.outputs.pr_commit_links_table = _resolve_path(base, resolved.outputs.pr_commit_links_table)
@@ -1199,6 +1225,7 @@ def resolve_config_paths(config):
     resolved.outputs.extraction_summary_csv = _resolve_path(base, resolved.outputs.extraction_summary_csv)
     resolved.outputs.run_manifest_json = _resolve_path(base, resolved.outputs.run_manifest_json)
     resolved.outputs.resolved_config_snapshot_yaml = _resolve_path(base, resolved.outputs.resolved_config_snapshot_yaml)
+    resolved.outputs.comparison_issue_qa_summary_csv = _resolve_path(base, resolved.outputs.comparison_issue_qa_summary_csv)
 
     resolved.checkpointing.checkpoint_dir = _resolve_path(base, resolved.checkpointing.checkpoint_dir)
     resolved.logging.extraction_log_dir = _resolve_path(base, resolved.logging.extraction_log_dir)
