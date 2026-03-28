@@ -541,6 +541,56 @@ def merge_part_files(part_paths, sort_columns=None):
     return merged
 
 
+def get_partitioned_output_root(output_path):
+    output_path = Path(output_path)
+    return output_path.with_suffix("").with_name(output_path.stem + "_dataset")
+
+
+def write_partitioned_dataset_from_repo_parts(*, repo_part_map, output_path, config, sort_columns=None, dedupe_subset=None):
+    dataset_root = get_partitioned_output_root(output_path)
+    dataset_root.mkdir(parents=True, exist_ok=True)
+
+    for repo_safe_name, part_paths in sorted(repo_part_map.items()):
+        repo_df = merge_part_files(part_paths, sort_columns=sort_columns)
+        if repo_df.empty:
+            continue
+        if dedupe_subset:
+            existing_subset = [col for col in dedupe_subset if col in repo_df.columns]
+            if existing_subset:
+                repo_df = repo_df.drop_duplicates(subset=existing_subset).reset_index(drop=True)
+
+        partition_dir = dataset_root / f"repo_full_name={repo_safe_name}"
+        partition_dir.mkdir(parents=True, exist_ok=True)
+        output_file = partition_dir / "part-00001.parquet"
+        repo_df.to_parquet(output_file, index=False, compression=config.storage.compression.parquet_compression)
+
+
+def write_merged_or_partitioned_output(*, repo_part_map, output_path, config, sort_columns=None, dedupe_subset=None):
+    merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
+    if merge_mode == "partitioned_dataset":
+        write_partitioned_dataset_from_repo_parts(
+            repo_part_map=repo_part_map,
+            output_path=output_path,
+            config=config,
+            sort_columns=sort_columns,
+            dedupe_subset=dedupe_subset,
+        )
+        return "partitioned_dataset"
+
+    all_part_paths = [path for paths in repo_part_map.values() for path in paths]
+    merged_df = merge_part_files(all_part_paths, sort_columns=sort_columns)
+    if merged_df.empty:
+        return "single_parquet_empty"
+
+    if dedupe_subset:
+        existing_subset = [col for col in dedupe_subset if col in merged_df.columns]
+        if existing_subset:
+            merged_df = merged_df.drop_duplicates(subset=existing_subset).reset_index(drop=True)
+
+    write_processed_table(merged_df, Path(output_path), config)
+    return "single_parquet"
+
+
 def write_summary_csv(summary_rows, output_path):
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -556,7 +606,7 @@ def write_run_manifest(config, repo_rows, summary_rows):
         "repo_count_processed": len(summary_rows),
         "completed_repo_count": sum(1 for row in summary_rows if row.get("status") == "completed"),
         "failed_repo_count": sum(1 for row in summary_rows if row.get("status") == "failed"),
-        "processed_merge_mode": "single_parquet",
+        "processed_merge_mode": getattr(config.storage, "processed_merge_mode", "single_parquet"),
         "generated_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary_rows": summary_rows,
         "git_history_fast_mode": get_git_history_option(config, "fast_mode", False),
@@ -576,23 +626,28 @@ def merge_commit_batches(config, logger):
 
     commit_repo_parts = collect_repo_part_files(batch_root, "commits_part_*.parquet")
     commit_file_repo_parts = collect_repo_part_files(batch_root, "commit_files_part_*.parquet")
-    commit_parts = [path for paths in commit_repo_parts.values() for path in paths]
-    commit_file_parts = [path for paths in commit_file_repo_parts.values() for path in paths]
 
-    commit_df = merge_part_files(commit_parts, sort_columns=["repo_full_name", "commit_timestamp", "commit_sha"])
-    commit_file_df = merge_part_files(commit_file_parts, sort_columns=["repo_full_name", "commit_sha", "file_path", "change_type"])
-
-    if not commit_df.empty:
-        commit_df = commit_df.drop_duplicates(subset=["repo_full_name", "commit_sha"])
-        write_processed_table(commit_df, Path(config.outputs.commits_table), config)
-        logger.info("Wrote merged commits table to %s", config.outputs.commits_table)
+    if commit_repo_parts:
+        commits_mode_used = write_merged_or_partitioned_output(
+            repo_part_map=commit_repo_parts,
+            output_path=config.outputs.commits_table,
+            config=config,
+            sort_columns=["repo_full_name", "commit_timestamp", "commit_sha"],
+            dedupe_subset=["repo_full_name", "commit_sha"],
+        )
+        logger.info("Wrote commits output using %s mode to %s", commits_mode_used, config.outputs.commits_table)
     else:
         logger.warning("No commit parts found to merge.")
 
-    if not commit_file_df.empty:
-        commit_file_df = commit_file_df.drop_duplicates(subset=["repo_full_name", "commit_sha", "file_path", "old_file_path", "change_type"])
-        write_processed_table(commit_file_df, Path(config.outputs.commit_files_table), config)
-        logger.info("Wrote merged commit-files table to %s", config.outputs.commit_files_table)
+    if commit_file_repo_parts:
+        commit_files_mode_used = write_merged_or_partitioned_output(
+            repo_part_map=commit_file_repo_parts,
+            output_path=config.outputs.commit_files_table,
+            config=config,
+            sort_columns=["repo_full_name", "commit_sha", "file_path", "change_type"],
+            dedupe_subset=["repo_full_name", "commit_sha", "file_path", "old_file_path", "change_type"],
+        )
+        logger.info("Wrote commit-files output using %s mode to %s", commit_files_mode_used, config.outputs.commit_files_table)
     else:
         logger.warning("No commit-file parts found to merge.")
 

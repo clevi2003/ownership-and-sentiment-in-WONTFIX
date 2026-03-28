@@ -275,18 +275,18 @@ linkage:
     enabled: true
     source: "github_pr_commit_list"
 
-#  issue_file:
-#    enabled: true
-#    allowed_link_sources:
-#      - "pr_commit_chain"
-#      - "issue_text_file_reference"
-#    confidence_levels:
-#      pr_commit_chain: "high"
-#      issue_text_file_reference: "medium"
-#    allow_rq_specific_missing_links: true
-#    notes:
-#      - "Issues without file links may still be used for RQ1 and RQ3."
-#      - "RQ2 may use only issues with acceptable issue-file linkage."
+  issue_file:
+    enabled: true
+    allowed_link_sources:
+      - "pr_commit_chain"
+      - "issue_text_file_reference"
+    confidence_levels:
+      pr_commit_chain: "high"
+      issue_text_file_reference: "medium"
+    allow_rq_specific_missing_links: true
+    notes:
+      - "Issues without file links should be ok to use for RQ1 and RQ3."
+      - "RQ2 should prob use only issues with high and maybe medium confidence issue-file linkage."
 issue_file_linking:
   enabled: true
   max_repos_per_run: 1

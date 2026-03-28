@@ -328,15 +328,16 @@ class PrCommitLinkConfig:
     enabled: bool
     source: str
 
-# @dataclass
-# class IssueFileLinkConfig:
-#     enabled: bool
-#     allowed_link_sources: list
-#     confidence_levels: dict
-#     allow_rq_specific_missing_links: bool
-#     notes: list = field(default_factory=list)
 @dataclass
 class IssueFileLinkConfig:
+    enabled: bool
+    allowed_link_sources: list
+    confidence_levels: dict
+    allow_rq_specific_missing_links: bool
+    notes: list = field(default_factory=list)
+
+@dataclass
+class IssueFileLinkingRuntimeConfig:
     enabled: bool
     max_repos_per_run: int
     resume_mode: str
@@ -483,6 +484,7 @@ class StudyConfig:
     git_history_extraction: GitHistoryExtractionConfig
     comparison_set: ComparisonSetConfig
     linkage: LinkageConfig
+    issue_file_linking: IssueFileLinkingRuntimeConfig
     identity_resolution: IdentityResolutionConfig
     bot_handling: BotHandlingConfig
     storage: StorageConfig
@@ -833,8 +835,7 @@ def _parse_linkage(data):
     d = _require_dict(_get_required(data, "linkage", "root"), section)
     issue_pr_d = _require_dict(_get_required(d, "issue_pr", section), "linkage.issue_pr")
     pr_commit_d = _require_dict(_get_required(d, "pr_commit", section), "linkage.pr_commit")
-    issue_file_section = "issue_file_linking"
-    issue_file_d = _require_dict(_get_required(data, "issue_file_linking", "root"), issue_file_section)
+    issue_file_d = _require_dict(_get_required(d, "issue_file", section), "linkage.issue_file")
 
     return LinkageConfig(
         issue_pr=IssuePrLinkConfig(
@@ -858,26 +859,35 @@ def _parse_linkage(data):
             source=_get_required(pr_commit_d, "source", "linkage.pr_commit"),
         ),
         issue_file=IssueFileLinkConfig(
-            enabled=_get_required(issue_file_d, "enabled", issue_file_section),
-            max_repos_per_run=_get_required(issue_file_d, "max_repos_per_run", issue_file_section),
-            resume_mode=_get_required(issue_file_d, "resume_mode", issue_file_section),
-            write_batch_size=_get_required(issue_file_d, "write_batch_size", issue_file_section),
-            include_comment_text_fallback=_get_required(
-                issue_file_d,
-                "include_comment_text_fallback",
-                issue_file_section,
+            enabled=_get_required(issue_file_d, "enabled", "linkage.issue_file"),
+            allowed_link_sources=_require_list(
+                _get_required(issue_file_d, "allowed_link_sources", "linkage.issue_file"),
+                "linkage.issue_file.allowed_link_sources",
             ),
-            require_repo_file_match_for_text_links=_get_required(
-                issue_file_d,
-                "require_repo_file_match_for_text_links",
-                issue_file_section,
+            confidence_levels=_require_dict(
+                _get_required(issue_file_d, "confidence_levels", "linkage.issue_file"),
+                "linkage.issue_file.confidence_levels",
             ),
-            allow_unique_basename_match=_get_required(
+            allow_rq_specific_missing_links=_get_required(
                 issue_file_d,
-                "allow_unique_basename_match",
-                issue_file_section,
+                "allow_rq_specific_missing_links",
+                "linkage.issue_file",
             ),
+            notes=_get_optional(issue_file_d, "notes", []),
         ),
+    )
+
+def _parse_issue_file_linking_runtime(data):
+    section = "issue_file_linking"
+    d = _require_dict(_get_required(data, "issue_file_linking", "root"), section)
+    return IssueFileLinkingRuntimeConfig(
+        enabled=_get_required(d, "enabled", section),
+        max_repos_per_run=_get_required(d, "max_repos_per_run", section),
+        resume_mode=_get_required(d, "resume_mode", section),
+        write_batch_size=_get_required(d, "write_batch_size", section),
+        include_comment_text_fallback=_get_required(d, "include_comment_text_fallback", section),
+        require_repo_file_match_for_text_links=_get_required(d, "require_repo_file_match_for_text_links", section),
+        allow_unique_basename_match=_get_required(d, "allow_unique_basename_match", section),
     )
 
 def _parse_identity_resolution(data):
@@ -1052,6 +1062,7 @@ def load_study_config(config_path):
         git_history_extraction=_parse_git_history_extraction(raw_data),
         comparison_set=_parse_comparison_set(raw_data),
         linkage=_parse_linkage(raw_data),
+        issue_file_linking=_parse_issue_file_linking_runtime(raw_data),
         identity_resolution=_parse_identity_resolution(raw_data),
         bot_handling=_parse_bot_handling(raw_data),
         storage=_parse_storage(raw_data),
