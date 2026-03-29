@@ -422,11 +422,15 @@ class OutputsConfig:
     commit_files_table: str
     comparison_issue_set_table: str
     wontfix_issue_set_table: str
-    contributor_identity_table: str
-    contributor_identity_clusters_table: str
     issue_pr_links_table: str
     pr_commit_links_table: str
     issue_file_links_table: str
+    contributor_identity_table: str
+    contributor_identity_clusters_table: str
+    issues_resolved_table: str
+    issue_comments_resolved_table: str
+    pull_requests_resolved_table: str
+    commits_resolved_table: str
     extraction_summary_csv: str
     run_manifest_json: str
     resolved_config_snapshot_yaml: str
@@ -966,30 +970,36 @@ def _parse_storage(data):
         append_processed_batches=_get_required(d, "append_processed_batches", section),
     )
 
-def _parse_outputs(data):
-    section = "outputs"
-    d = _require_dict(_get_required(data, "outputs", "root"), section)
+def _parse_outputs(raw_outputs):
+    raw_outputs = raw_outputs or {}
     return OutputsConfig(
-        repo_candidate_list=_get_required(d, "repo_candidate_list", section),
-        repo_included_list=_get_required(d, "repo_included_list", section),
-        repositories_table=_get_required(d, "repositories_table", section),
-        issues_table=_get_required(d, "issues_table", section),
-        issue_comments_table=_get_required(d, "issue_comments_table", section),
-        pull_requests_table=_get_required(d, "pull_requests_table", section),
-        commits_table=_get_required(d, "commits_table", section),
-        commit_files_table=_get_required(d, "commit_files_table", section),
-        comparison_issue_set_table=_get_required(d, "comparison_issue_set_table", section),
-        wontfix_issue_set_table=_get_required(d, "wontfix_issue_set_table", section),
-        contributor_identity_table=_get_required(d, "contributor_identity_table", section),
-        contributor_identity_clusters_table=_get_optional(d, "contributor_identity_clusters_table",
-                                                          "./data/linked/contributor_identity_clusters.parquet"),
-        issue_pr_links_table=_get_required(d, "issue_pr_links_table", section),
-        pr_commit_links_table=_get_required(d, "pr_commit_links_table", section),
-        issue_file_links_table=_get_required(d, "issue_file_links_table", section),
-        extraction_summary_csv=_get_required(d, "extraction_summary_csv", section),
-        run_manifest_json=_get_required(d, "run_manifest_json", section),
-        resolved_config_snapshot_yaml=_get_required(d, "resolved_config_snapshot_yaml", section),
-        comparison_issue_qa_summary_csv=_get_required(d, "comparison_issue_qa_summary_csv", section),
+        repo_candidate_list=raw_outputs.get("repo_candidate_list", "./data/processed/repo_candidates.csv"),
+        repo_included_list=raw_outputs.get("repo_included_list", "./data/processed/repo_list.csv"),
+        repositories_table=raw_outputs.get("repositories_table", "./data/processed/repositories.parquet"),
+        issues_table=raw_outputs.get("issues_table", "./data/processed/issues.parquet"),
+        issue_comments_table=raw_outputs.get("issue_comments_table", "./data/processed/issue_comments.parquet"),
+        pull_requests_table=raw_outputs.get("pull_requests_table", "./data/processed/pull_requests.parquet"),
+        commits_table=raw_outputs.get("commits_table", "./data/processed/commits.parquet"),
+        commit_files_table=raw_outputs.get("commit_files_table", "./data/processed/commit_files.parquet"),
+
+        comparison_issue_set_table=raw_outputs.get("comparison_issue_set_table", "./data/final/issue_sets/comparison_issue_set.parquet"),
+        wontfix_issue_set_table=raw_outputs.get("wontfix_issue_set_table", "./data/final/issue_sets/wontfix_issue_set.parquet"),
+
+        issue_pr_links_table=raw_outputs.get("issue_pr_links_table", "./data/linked/entity_links/issue_pr_links.parquet"),
+        pr_commit_links_table=raw_outputs.get("pr_commit_links_table", "./data/linked/entity_links/pr_commit_links.parquet"),
+        issue_file_links_table=raw_outputs.get("issue_file_links_table", "./data/linked/entity_links/issue_file_links.parquet"),
+        contributor_identity_table=raw_outputs.get("contributor_identity_table", "./data/linked/identity/contributor_identity_map.parquet"),
+
+        contributor_identity_clusters_table=raw_outputs.get("contributor_identity_clusters_table", "./data/linked/identity/contributor_identity_clusters.parquet"),
+        issues_resolved_table=raw_outputs.get("issues_resolved_table", "./data/linked/resolved_entities/issues_resolved.parquet"),
+        issue_comments_resolved_table=raw_outputs.get("issue_comments_resolved_table", "./data/linked/resolved_entities/issue_comments_resolved.parquet" ),
+        pull_requests_resolved_table=raw_outputs.get("pull_requests_resolved_table", "./data/linked/resolved_entities/pull_requests_resolved.parquet"),
+        commits_resolved_table=raw_outputs.get("commits_resolved_table", "./data/linked/resolved_entities/commits_resolved.parquet"),
+
+        extraction_summary_csv=raw_outputs.get("extraction_summary_csv", "./logs/extraction/issues_comments_extraction_summary.csv"),
+        run_manifest_json=raw_outputs.get("run_manifest_json", "./logs/extraction/issues_comments_run_manifest.json"),
+        resolved_config_snapshot_yaml=raw_outputs.get("resolved_config_snapshot_yaml", "./logs/extraction/resolved_study_config.yaml"),
+        comparison_issue_qa_summary_csv=raw_outputs.get("comparison_issue_qa_summary_csv", "./logs/qa/comparison_issue_set_summary.csv"),
     )
 
 def _parse_checkpointing(data):
@@ -1248,6 +1258,10 @@ def resolve_config_paths(config):
     resolved.outputs.run_manifest_json = _resolve_path(base, resolved.outputs.run_manifest_json)
     resolved.outputs.resolved_config_snapshot_yaml = _resolve_path(base, resolved.outputs.resolved_config_snapshot_yaml)
     resolved.outputs.comparison_issue_qa_summary_csv = _resolve_path(base, resolved.outputs.comparison_issue_qa_summary_csv)
+    resolved.outputs.issues_resolved_table = _resolve_path(base, resolved.outputs.issues_resolved_table)
+    resolved.outputs.issue_comments_resolved_table = _resolve_path(base, resolved.outputs.issue_comments_resolved_table)
+    resolved.outputs.pull_requests_resolved_table = _resolve_path(base, resolved.outputs.pull_requests_resolved_table)
+    resolved.outputs.commits_resolved_table = _resolve_path(base, resolved.outputs.commits_resolved_table)
 
     resolved.checkpointing.checkpoint_dir = _resolve_path(base, resolved.checkpointing.checkpoint_dir)
     resolved.logging.extraction_log_dir = _resolve_path(base, resolved.logging.extraction_log_dir)
@@ -1272,6 +1286,17 @@ def ensure_project_directories(config):
         config.logging.normalization_log_dir,
         config.logging.linkage_log_dir,
         config.logging.qa_log_dir,
+        config.outputs.issue_pr_links_table,
+        config.outputs.pr_commit_links_table,
+        config.outputs.issue_file_links_table,
+        config.outputs.contributor_identity_table,
+        config.outputs.contributor_identity_clusters_table,
+        config.outputs.issues_resolved_table,
+        config.outputs.issue_comments_resolved_table,
+        config.outputs.pull_requests_resolved_table,
+        config.outputs.commits_resolved_table,
+        config.outputs.comparison_issue_set_table,
+        config.outputs.wontfix_issue_set_table,
     ]
 
     if config.git_history_extraction.enabled:
