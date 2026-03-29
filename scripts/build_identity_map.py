@@ -14,6 +14,7 @@ from config.study_config_loader import ensure_project_directories, load_study_co
 from utils.checkpoints import get_batch_root, get_stage_option, reset_batch_root, should_skip_repo, write_repo_checkpoint, sanitize_repo_name
 from utils.chunk_writers import IdentityResolutionRepoChunkWriter
 from utils.io_helpers import collect_repo_part_files, load_repo_list, load_table, clean_text, normalize_value, has_real_value, repo_filter, write_merged_or_partitioned_output
+from utils.regex_expressions import GITHUB_NOREPLY_EMAIL_PATTERN
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
 LOG_FILENAME = "06_build_identity_map.log"
@@ -99,6 +100,29 @@ def normalize_login_alias_for_name(value):
     return value or None
 
 
+def extract_login_from_github_noreply_email(value):
+    value = clean_text(value)
+    if not has_real_value(value):
+        return None
+    match = GITHUB_NOREPLY_EMAIL_PATTERN.match(value)
+    if not match:
+        return None
+    login_value = clean_text(match.group("login"))
+    if not has_real_value(login_value):
+        return None
+    return normalize_value(login_value)
+
+
+def choose_login_candidate(raw_login, raw_email):
+    normalized_login = normalize_value(raw_login)
+    if has_real_value(normalized_login):
+        return normalized_login
+    noreply_login = extract_login_from_github_noreply_email(raw_email)
+    if has_real_value(noreply_login):
+        return noreply_login
+    return None
+
+
 def is_probably_ambiguous_name(normalized_name):
     if not normalized_name:
         return True
@@ -165,6 +189,7 @@ def new_repo_result(repo_full_name, repo_id=None):
         "cluster_rows_written": 0,
         "error_message": "",
         "name_alias_candidates_available": 0,
+        "resolved_by_noreply_login_bridge": 0,
     }
 
 
@@ -313,7 +338,9 @@ def resolve_identities(candidates_df, repo_id, config, result):
     df["normalized_login"] = df["raw_login"].apply(normalize_value)
     df["normalized_name"] = df["raw_name"].apply(lambda value: normalize_name(value, config))
     df["normalized_email"] = df["raw_email"].apply(lambda value: normalize_email(value, config))
-    df["normalized_login_alias_name"] = df["raw_login"].apply(normalize_login_alias_for_name)
+    # ideal would be explicit login but still try a probable login from GitHub noreply emails when possible
+    df["normalized_login_candidate"] = df.apply(lambda row: choose_login_candidate(row.get("raw_login"), row.get("raw_email")), axis=1)
+    df["normalized_login_alias_name"] = df["normalized_login_candidate"].apply(normalize_login_alias_for_name)
     result["name_alias_candidates_available"] = int(df["normalized_login_alias_name"].notna().sum())
     df["bot_flag"] = df.apply(
         lambda row: detect_bot_flag(row.get("raw_login"), row.get("raw_name"), row.get("raw_email"), config),
@@ -325,13 +352,21 @@ def resolve_identities(candidates_df, repo_id, config, result):
     df["identity_confidence"] = None
     df["match_method"] = None
 
-    # login exact
-    login_rows = df[df["normalized_login"].notna()].copy()
+    # login exact, including high-precision recovery from GitHub noreply emails
+    login_rows = df[df["normalized_login_candidate"].notna()].copy()
     if not login_rows.empty:
-        df.loc[login_rows.index, "resolved_identity"] = login_rows["normalized_login"].apply(lambda value: f"login:{value}")
-        df.loc[login_rows.index, "identity_confidence"] = "high"
-        df.loc[login_rows.index, "match_method"] = "github_login_exact"
-        result["resolved_by_login"] = int(len(login_rows))
+        df.loc[login_rows.index, "resolved_identity"] = login_rows["normalized_login_candidate"].apply(lambda value: f"login:{value}")
+
+        explicit_login_mask = login_rows["normalized_login"].notna()
+        inferred_login_mask = ~explicit_login_mask
+        if explicit_login_mask.any():
+            df.loc[login_rows.index[explicit_login_mask], "identity_confidence"] = "high"
+            df.loc[login_rows.index[explicit_login_mask], "match_method"] = "github_login_exact"
+        if inferred_login_mask.any():
+            df.loc[login_rows.index[inferred_login_mask], "identity_confidence"] = "medium"
+            df.loc[login_rows.index[inferred_login_mask], "match_method"] = "github_noreply_login_exact"
+        result["resolved_by_login"] = int(explicit_login_mask.sum())
+        result["resolved_by_noreply_login_bridge"] = int(inferred_login_mask.sum())
 
     matching_priority = list(getattr(config.identity_resolution, "matching_priority", [])) or ["github_login_exact", "email_exact", "normalized_name_exact"]
 
@@ -415,12 +450,12 @@ def resolve_identities(candidates_df, repo_id, config, result):
     if not unresolved.empty:
         singleton_count = 0
         for index, row in unresolved.iterrows():
-            normalized_login = clean_text(row.get("normalized_login"))
+            normalized_login_candidate = clean_text(row.get("normalized_login_candidate"))
             normalized_email = clean_text(row.get("normalized_email"))
             normalized_name = clean_text(row.get("normalized_name"))
 
-            if has_real_value(normalized_login):
-                resolved_identity = f"singleton_login:{normalized_login}"
+            if has_real_value(normalized_login_candidate):
+                resolved_identity = f"singleton_login:{normalized_login_candidate}"
             elif has_real_value(normalized_email):
                 resolved_identity = f"singleton_email:{normalized_email}"
             elif has_real_value(normalized_name):
@@ -439,7 +474,7 @@ def resolve_identities(candidates_df, repo_id, config, result):
 
     if not getattr(config.identity_resolution, "preserve_normalized_columns", True):
         df = df.drop(
-            columns=["normalized_login", "normalized_name", "normalized_email", "normalized_login_alias_name"],
+            columns=["normalized_login", "normalized_name", "normalized_email", "normalized_login_alias_name", "normalized_login_candidate"],
             errors="ignore",
         )
     cluster_df = build_cluster_summary(df, repo_id=repo_id)

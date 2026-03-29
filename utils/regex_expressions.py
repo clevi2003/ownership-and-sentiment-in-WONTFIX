@@ -64,3 +64,7 @@ FILENAME_PATTERN = re.compile(
 )
 TRAILING_PUNCTUATION = "'\"`.,;:!?)]}>"
 LEADING_PUNCTUATION = "'\"`([{<"
+
+GITHUB_NOREPLY_EMAIL_PATTERN = re.compile(
+    r"(?i)^(?:(?P<id>\d+)\+)?(?P<login>[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)@users\.noreply\.github\.com$"
+)
