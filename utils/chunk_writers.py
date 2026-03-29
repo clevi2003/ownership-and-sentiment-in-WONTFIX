@@ -147,3 +147,18 @@ class IssueFileLinkRepoChunkWriter(BaseRepoChunkWriter):
 
     def add_issue_file_link_row(self, row):
         self.add_row("issue_file_links", row)
+
+
+class IdentityResolutionRepoChunkWriter(BaseRepoChunkWriter):
+    """identity resolution specific writer"""
+
+    def __init__(self, *, config, repo_dir, batch_size=5000):
+        super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
+        self.register_chunked_table("contributor_identity_map")
+        self.register_chunked_table("contributor_identity_clusters")
+
+    def add_identity_row(self, row):
+        self.add_row("contributor_identity_map", row)
+
+    def add_cluster_row(self, row):
+        self.add_row("contributor_identity_clusters", row)

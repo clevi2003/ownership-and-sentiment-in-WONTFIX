@@ -303,8 +303,13 @@ identity_resolution:
   contributor_key_format: "{repo_id}::{resolved_identity}"
   matching_priority:
     - "github_login_exact"
-    - "normalized_name_exact"
     - "email_exact"
+    - "normalized_name_exact"
+  max_repos_per_run: 1
+  resume_mode: "fresh" # fresh | checkpoint_only | raw_or_checkpoint
+  write_batch_size: 1000
+  write_cluster_summary: true
+  preserve_normalized_columns: true
   normalized_name_rules:
     lowercase: true
     strip_whitespace: true

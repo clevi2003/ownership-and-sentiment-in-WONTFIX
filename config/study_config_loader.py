@@ -371,6 +371,11 @@ class IdentityResolutionConfig:
     create_contributor_key: bool
     contributor_key_format: str
     matching_priority: list
+    max_repos_per_run: int
+    resume_mode: str
+    write_batch_size: int
+    write_cluster_summary: bool
+    preserve_normalized_columns: bool
     normalized_name_rules: NormalizedNameRulesConfig
     email_rules: EmailRulesConfig
     aggressive_fuzzy_merge: bool
@@ -418,6 +423,7 @@ class OutputsConfig:
     comparison_issue_set_table: str
     wontfix_issue_set_table: str
     contributor_identity_table: str
+    contributor_identity_clusters_table: str
     issue_pr_links_table: str
     pr_commit_links_table: str
     issue_file_links_table: str
@@ -901,16 +907,25 @@ def _parse_identity_resolution(data):
         scope=_get_required(d, "scope", section),
         create_contributor_key=_get_required(d, "create_contributor_key", section),
         contributor_key_format=_get_required(d, "contributor_key_format", section),
-        matching_priority=_require_list(_get_required(d, "matching_priority", section), "identity_resolution.matching_priority"),
+        matching_priority=_require_list(_get_required(d, "matching_priority", section),
+                                        "identity_resolution.matching_priority"),
+        max_repos_per_run=_get_optional(d, "max_repos_per_run", None),
+        resume_mode=_get_optional(d, "resume_mode", "fresh"),
+        write_batch_size=_get_optional(d, "write_batch_size", 5000),
+        write_cluster_summary=_get_optional(d, "write_cluster_summary", True),
+        preserve_normalized_columns=_get_optional(d, "preserve_normalized_columns", True),
         normalized_name_rules=NormalizedNameRulesConfig(
             lowercase=_get_required(name_rules_d, "lowercase", "identity_resolution.normalized_name_rules"),
-            strip_whitespace=_get_required(name_rules_d, "strip_whitespace", "identity_resolution.normalized_name_rules"),
-            collapse_internal_spaces=_get_required(name_rules_d, "collapse_internal_spaces", "identity_resolution.normalized_name_rules"),
+            strip_whitespace=_get_required(name_rules_d, "strip_whitespace",
+                                           "identity_resolution.normalized_name_rules"),
+            collapse_internal_spaces=_get_required(name_rules_d, "collapse_internal_spaces",
+                                                   "identity_resolution.normalized_name_rules"),
         ),
         email_rules=EmailRulesConfig(
             lowercase=_get_required(email_rules_d, "lowercase", "identity_resolution.email_rules"),
             strip_whitespace=_get_required(email_rules_d, "strip_whitespace", "identity_resolution.email_rules"),
-            allow_email_for_internal_mapping_only=_get_required(email_rules_d, "allow_email_for_internal_mapping_only", "identity_resolution.email_rules"),
+            allow_email_for_internal_mapping_only=_get_required(email_rules_d, "allow_email_for_internal_mapping_only",
+                                                                "identity_resolution.email_rules"),
         ),
         aggressive_fuzzy_merge=_get_required(d, "aggressive_fuzzy_merge", section),
         keep_unresolved_identities=_get_required(d, "keep_unresolved_identities", section),
@@ -963,15 +978,14 @@ def _parse_outputs(data):
         pull_requests_table=_get_required(d, "pull_requests_table", section),
         commits_table=_get_required(d, "commits_table", section),
         commit_files_table=_get_required(d, "commit_files_table", section),
-
         comparison_issue_set_table=_get_required(d, "comparison_issue_set_table", section),
         wontfix_issue_set_table=_get_required(d, "wontfix_issue_set_table", section),
-
         contributor_identity_table=_get_required(d, "contributor_identity_table", section),
+        contributor_identity_clusters_table=_get_optional(d, "contributor_identity_clusters_table",
+                                                          "./data/linked/contributor_identity_clusters.parquet"),
         issue_pr_links_table=_get_required(d, "issue_pr_links_table", section),
         pr_commit_links_table=_get_required(d, "pr_commit_links_table", section),
         issue_file_links_table=_get_required(d, "issue_file_links_table", section),
-
         extraction_summary_csv=_get_required(d, "extraction_summary_csv", section),
         run_manifest_json=_get_required(d, "run_manifest_json", section),
         resolved_config_snapshot_yaml=_get_required(d, "resolved_config_snapshot_yaml", section),
@@ -1101,14 +1115,10 @@ def validate_study_config(config):
     if config.repo_discovery.final_repo_limit <= 0:
         raise ConfigError("repo_discovery.final_repo_limit must be > 0.")
     if config.repo_discovery.final_repo_limit > config.repo_discovery.candidate_repo_limit:
-        raise ConfigError(
-            "repo_discovery.final_repo_limit should be less than or equal to repo_discovery.candidate_repo_limit."
-        )
+        raise ConfigError("repo_discovery.final_repo_limit should be less than or equal to repo_discovery.candidate_repo_limit.")
     allowed_wontfix_count_modes = {"repo_search_total_count"}
     if config.repo_discovery.final_wontfix_count_screen.count_mode not in allowed_wontfix_count_modes:
-        raise ConfigError("repo_discovery.final_wontfix_count_screen.count_mode must be one of "
-                          f"{sorted(allowed_wontfix_count_modes)}.")
-
+        raise ConfigError(f"repo_discovery.final_wontfix_count_screen.count_mode must be one of {sorted(allowed_wontfix_count_modes)}.")
     if config.repo_discovery.final_wontfix_count_screen.min_approx_wontfix_issue_count < 0:
         raise ConfigError("repo_discovery.final_wontfix_count_screen.min_approx_wontfix_issue_count must be >= 0.")
 
@@ -1142,26 +1152,19 @@ def validate_study_config(config):
 
     if config.issue_extraction.max_issue_pages_per_repo_per_state <= 0:
         raise ConfigError("issue_extraction.max_issue_pages_per_repo_per_state must be > 0.")
-
     if config.issue_extraction.max_comment_pages_per_issue <= 0:
         raise ConfigError("issue_extraction.max_comment_pages_per_issue must be > 0.")
-
     if config.issue_extraction.write_batch_size <= 0:
         raise ConfigError("issue_extraction.write_batch_size must be > 0.")
-
     if config.issue_extraction.resume_mode not in {"checkpoint_only", "raw_or_checkpoint", "fresh"}:
         raise ConfigError("issue_extraction.resume_mode must be one of checkpoint_only, raw_or_checkpoint, fresh.")
-
     if config.issue_extraction.search_max_results_per_shard <= 0:
         raise ConfigError("issue_extraction.search_max_results_per_shard must be > 0.")
 
     if config.issue_extraction.search_max_shard_splits <= 0:
         raise ConfigError("issue_extraction.search_max_shard_splits must be > 0.")
 
-    if (
-        config.issue_extraction.max_search_pages_per_shard is not None
-        and config.issue_extraction.max_search_pages_per_shard <= 0
-    ):
+    if (config.issue_extraction.max_search_pages_per_shard is not None and config.issue_extraction.max_search_pages_per_shard <= 0):
         raise ConfigError("issue_extraction.max_search_pages_per_shard must be > 0 when provided.")
 
     allowed_visibility = {"public"}
@@ -1172,15 +1175,22 @@ def validate_study_config(config):
 
     allowed_time_units = {"month", "quarter", "year"}
     if config.study_windows.participation_analysis.time_window_unit not in allowed_time_units:
-        raise ConfigError(
-            f"study_windows.participation_analysis.time_window_unit must be one of {sorted(allowed_time_units)}."
-        )
+        raise ConfigError(f"study_windows.participation_analysis.time_window_unit must be one of {sorted(allowed_time_units)}.")
 
     allowed_identity_scopes = {"repository_local"}
     if config.identity_resolution.scope not in allowed_identity_scopes:
-        raise ConfigError(
-            f"identity_resolution.scope must be one of {sorted(allowed_identity_scopes)}."
-        )
+        raise ConfigError(f"identity_resolution.scope must be one of {sorted(allowed_identity_scopes)}.")
+    allowed_identity_match_methods = {"github_login_exact", "email_exact", "normalized_name_exact"}
+    for value in config.identity_resolution.matching_priority:
+        if value not in allowed_identity_match_methods:
+            raise ConfigError(f"identity_resolution.matching_priority values must be in {sorted(allowed_identity_match_methods)}.")
+    if getattr(config.identity_resolution, "write_batch_size", 1) <= 0:
+        raise ConfigError("identity_resolution.write_batch_size must be > 0.")
+    if getattr(config.identity_resolution, "max_repos_per_run",
+               None) is not None and config.identity_resolution.max_repos_per_run <= 0:
+        raise ConfigError("identity_resolution.max_repos_per_run must be > 0 when provided.")
+    if getattr(config.identity_resolution, "resume_mode", "fresh") not in {"fresh", "checkpoint_only", "raw_or_checkpoint"}:
+        raise ConfigError("identity_resolution.resume_mode must be 'fresh', 'checkpoint_only', or 'raw_or_checkpoint'.")
 
     if not config.label_normalization.outcome_labels.wontfix.variants:
         raise ConfigError("At least one WONTFIX label variant must be provided.")
@@ -1230,6 +1240,7 @@ def resolve_config_paths(config):
     resolved.outputs.comparison_issue_set_table = _resolve_path(base, resolved.outputs.comparison_issue_set_table)
     resolved.outputs.wontfix_issue_set_table = _resolve_path(base, resolved.outputs.wontfix_issue_set_table)
     resolved.outputs.contributor_identity_table = _resolve_path(base, resolved.outputs.contributor_identity_table)
+    resolved.outputs.contributor_identity_clusters_table = _resolve_path(base, resolved.outputs.contributor_identity_clusters_table)
     resolved.outputs.issue_pr_links_table = _resolve_path(base, resolved.outputs.issue_pr_links_table)
     resolved.outputs.pr_commit_links_table = _resolve_path(base, resolved.outputs.pr_commit_links_table)
     resolved.outputs.issue_file_links_table = _resolve_path(base, resolved.outputs.issue_file_links_table)

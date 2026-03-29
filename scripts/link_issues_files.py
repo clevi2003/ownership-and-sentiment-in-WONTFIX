@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from config.study_config_loader import ensure_project_directories, load_study_config
 from utils.checkpoints import get_batch_root, get_stage_option, reset_batch_root, should_skip_repo, write_repo_checkpoint, sanitize_repo_name
 from utils.chunk_writers import IssueFileLinkRepoChunkWriter
-from utils.io_helpers import load_repo_list, write_csv_rows, write_processed_table
+from utils.io_helpers import load_repo_list, write_csv_rows, write_processed_table, read_repo_partitioned_dataset, read_parquet_if_exists
 from utils.regex_expressions import BACKTICK_PATTERN, FILENAME_PATTERN, LEADING_PUNCTUATION, PATHISH_PATTERN, TRAILING_PUNCTUATION
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
@@ -49,30 +48,6 @@ def setup_logger(config):
 def get_partitioned_output_root(output_path):
     output_path = Path(output_path)
     return output_path.with_suffix("").with_name(output_path.stem + "_dataset")
-
-
-def safe_repo_dir_name(repo_full_name):
-    return str(repo_full_name).replace("/", "__")
-
-
-def read_repo_partitioned_dataset(output_path, repo_full_name):
-    dataset_root = get_partitioned_output_root(output_path)
-    partition_dir = dataset_root / f"repo_full_name={safe_repo_dir_name(repo_full_name)}"
-
-    if not partition_dir.exists():
-        return pd.DataFrame()
-    part_paths = sorted(partition_dir.glob("*.parquet"))
-    if not part_paths:
-        return pd.DataFrame()
-
-    frames = []
-    for path in part_paths:
-        df = pd.read_parquet(path)
-        if not df.empty:
-            frames.append(df)
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
 
 
 def get_issue_file_linking_option(config, field_name, default_value):
@@ -110,13 +85,6 @@ def new_repo_result(repo_full_name, repo_id=None):
         "fallback_candidates_matched": 0,
         "error_message": "",
     }
-
-
-def read_parquet_if_exists(path):
-    path = Path(path)
-    if not path.exists():
-        return pd.DataFrame()
-    return pd.read_parquet(path)
 
 
 def load_stage_inputs_for_repo(config, repo_full_name):
