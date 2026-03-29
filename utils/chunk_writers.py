@@ -162,3 +162,25 @@ class IdentityResolutionRepoChunkWriter(BaseRepoChunkWriter):
 
     def add_cluster_row(self, row):
         self.add_row("contributor_identity_clusters", row)
+
+
+class ResolvedEntityRepoChunkWriter(BaseRepoChunkWriter):
+    """resolved entity table writer"""
+    def __init__(self, *, config, repo_dir, batch_size=5000):
+        super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
+        self.register_chunked_table("issues_resolved")
+        self.register_chunked_table("issue_comments_resolved")
+        self.register_chunked_table("pull_requests_resolved")
+        self.register_chunked_table("commits_resolved")
+
+    def add_issue_row(self, row):
+        self.add_row("issues_resolved", row)
+
+    def add_comment_row(self, row):
+        self.add_row("issue_comments_resolved", row)
+
+    def add_pull_request_row(self, row):
+        self.add_row("pull_requests_resolved", row)
+
+    def add_commit_row(self, row):
+        self.add_row("commits_resolved", row)

@@ -1272,42 +1272,44 @@ def resolve_config_paths(config):
 
     return resolved
 
+from pathlib import Path
+
+def _ensure_directory(path_str):
+    path = Path(path_str)
+
+    # If path has a suffix, treat it as a file → create parent dir
+    if path.suffix:
+        path = path.parent
+
+    path.mkdir(parents=True, exist_ok=True)
+
+
 def ensure_project_directories(config):
-    paths_to_create = [
-        config.paths.data_root,
-        config.paths.raw_root,
-        config.paths.processed_root,
-        config.paths.linked_root,
-        config.paths.features_root,
-        config.paths.final_root,
-        config.paths.logs_root,
-        config.checkpointing.checkpoint_dir,
-        config.logging.extraction_log_dir,
-        config.logging.normalization_log_dir,
-        config.logging.linkage_log_dir,
-        config.logging.qa_log_dir,
-        config.outputs.issue_pr_links_table,
-        config.outputs.pr_commit_links_table,
-        config.outputs.issue_file_links_table,
-        config.outputs.contributor_identity_table,
-        config.outputs.contributor_identity_clusters_table,
-        config.outputs.issues_resolved_table,
-        config.outputs.issue_comments_resolved_table,
-        config.outputs.pull_requests_resolved_table,
-        config.outputs.commits_resolved_table,
-        config.outputs.comparison_issue_set_table,
-        config.outputs.wontfix_issue_set_table,
-    ]
+    # required path roots must be made
+    for field_name in vars(config.paths):
+        path_str = getattr(config.paths, field_name)
+        if path_str:
+            _ensure_directory(path_str)
 
-    if config.git_history_extraction.enabled:
-        paths_to_create.append(config.git_history_extraction.clone_root)
+    # output paths can include files, so only ensure dir if not a filename
+    for field_name in vars(config.outputs):
+        path_str = getattr(config.outputs, field_name)
+        if path_str:
+            _ensure_directory(path_str)
 
-    for path_str in paths_to_create:
-        Path(path_str).mkdir(parents=True, exist_ok=True)
+    # logging directories
+    for field_name in vars(config.logging):
+        path_str = getattr(config.logging, field_name)
+        if isinstance(path_str, str) and ("log" in field_name or "dir" in field_name):
+            _ensure_directory(path_str)
+
+    # checkpoint directory
+    if config.checkpointing.checkpoint_dir:
+        _ensure_directory(config.checkpointing.checkpoint_dir)
 
 def config_to_dict(config):
     """
-    Lightweight helper for debugging. Converts the dataclass tree into plain dictionaries.
+    little helper for debugging. converts the dataclass tree into plain dicts.
     """
     if hasattr(config, "__dataclass_fields__"):
         result = {}
