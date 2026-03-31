@@ -600,6 +600,7 @@ def extract_single_repo(session, headers, config, logger, repo_row):
             if config.checkpointing.enabled and config.checkpointing.write_status_after_each_page:
                 write_repo_checkpoint(
                     config,
+                    CHECKPOINT_PREFIX,
                     repo_full_name,
                     {
                         "status": "in_progress",
@@ -617,6 +618,7 @@ def extract_single_repo(session, headers, config, logger, repo_row):
     if config.checkpointing.enabled and config.checkpointing.write_status_after_each_repo:
         write_repo_checkpoint(
             config,
+            CHECKPOINT_PREFIX,
             repo_full_name,
             {
                 "status": "completed",
