@@ -54,3 +54,17 @@ ISSUE_NUMBER_FROM_REF_PATTERNS = [
 # this is less coverage and misses some things but still leave alone in case we revert back
 # CLOSING_KEYWORD_PATTERN = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b", flags=re.IGNORECASE,)
 # ISSUE_REF_PATTERN = re.compile(r"(?<![A-Za-z0-9_-])#(\d+)\b")
+
+PATHISH_PATTERN = re.compile(
+    r"(?P<path>(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,10})"
+)
+BACKTICK_PATTERN = re.compile(r"`([^`]{1,300})`")
+FILENAME_PATTERN = re.compile(
+    r"(?<![/\\])(?P<name>[A-Za-z0-9_.-]+\.(?:py|js|jsx|ts|tsx|java|go|c|cc|cpp|h|hpp|rb|php|rs|swift|kt|scala|r|lua|sh|yml|yaml|json|toml|ini|cfg|conf|xml|html|css|scss|md|txt|sql))\b"
+)
+TRAILING_PUNCTUATION = "'\"`.,;:!?)]}>"
+LEADING_PUNCTUATION = "'\"`([{<"
+
+GITHUB_NOREPLY_EMAIL_PATTERN = re.compile(
+    r"(?i)^(?:(?P<id>\d+)\+)?(?P<login>[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)@users\.noreply\.github\.com$"
+)

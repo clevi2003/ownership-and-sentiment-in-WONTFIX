@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -13,42 +12,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.study_config_loader import ensure_project_directories, load_study_config
-from utils.checkpoints import (
-    get_batch_root,
-    get_stage_option,
-    reset_batch_root,
-    should_skip_repo,
-    write_repo_checkpoint,
-)
-from utils.chunk_writers import BaseRepoChunkWriter
-from utils.io_helpers import load_repo_list, write_csv_rows, write_processed_table
+from utils.checkpoints import get_batch_root, get_stage_option, reset_batch_root, should_skip_repo, write_repo_checkpoint, sanitize_repo_name
+from utils.chunk_writers import IssueFileLinkRepoChunkWriter
+from utils.io_helpers import load_repo_list, write_csv_rows, write_processed_table, read_repo_partitioned_dataset, read_parquet_if_exists
+from utils.regex_expressions import BACKTICK_PATTERN, FILENAME_PATTERN, LEADING_PUNCTUATION, PATHISH_PATTERN, TRAILING_PUNCTUATION
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
 LOG_FILENAME = "05_link_issue_files.log"
 CHECKPOINT_PREFIX = "05_link_issue_files"
 BATCH_FOLDER_NAME = "issue_file_links"
 RAW_FOLDER_NAME = "issue_file_links"
-
-PATHISH_PATTERN = re.compile(
-    r"(?P<path>(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,10})"
-)
-BACKTICK_PATTERN = re.compile(r"`([^`]{1,300})`")
-FILENAME_PATTERN = re.compile(
-    r"(?<![/\\])(?P<name>[A-Za-z0-9_.-]+\.(?:py|js|jsx|ts|tsx|java|go|c|cc|cpp|h|hpp|rb|php|rs|swift|kt|scala|r|lua|sh|yml|yaml|json|toml|ini|cfg|conf|xml|html|css|scss|md|txt|sql))\b"
-)
-TRAILING_PUNCTUATION = "'\"`.,;:!?)]}>"
-LEADING_PUNCTUATION = "'\"`([{<"
-
-
-class IssueFileLinkRepoChunkWriter(BaseRepoChunkWriter):
-    """Issue-file linkage specific writer."""
-
-    def __init__(self, *, config, repo_dir, batch_size=5000):
-        super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
-        self.register_chunked_table("issue_file_links", "issue_file_links")
-
-    def add_issue_file_link_row(self, row):
-        self.add_row("issue_file_links", row)
 
 
 def setup_logger(config):
@@ -77,32 +50,21 @@ def get_partitioned_output_root(output_path):
     return output_path.with_suffix("").with_name(output_path.stem + "_dataset")
 
 
-def safe_repo_dir_name(repo_full_name):
-    return str(repo_full_name).replace("/", "__")
-
-
-def read_repo_partitioned_dataset(output_path, repo_full_name):
-    dataset_root = get_partitioned_output_root(output_path)
-    partition_dir = dataset_root / f"repo_full_name={safe_repo_dir_name(repo_full_name)}"
-
-    if not partition_dir.exists():
-        return pd.DataFrame()
-    part_paths = sorted(partition_dir.glob("*.parquet"))
-    if not part_paths:
-        return pd.DataFrame()
-
-    frames = []
-    for path in part_paths:
-        df = pd.read_parquet(path)
-        if not df.empty:
-            frames.append(df)
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, ignore_index=True)
-
-
 def get_issue_file_linking_option(config, field_name, default_value):
     return get_stage_option(config, "issue_file_linking", field_name, default_value)
+
+
+def get_issue_file_confidence(config, source_name, default_value):
+    linkage_cfg = getattr(config, "linkage", None)
+    if linkage_cfg is None:
+        return default_value
+    issue_file_cfg = getattr(linkage_cfg, "issue_file", None)
+    if issue_file_cfg is None:
+        return default_value
+    confidence_levels = getattr(issue_file_cfg, "confidence_levels", None)
+    if not isinstance(confidence_levels, dict):
+        return default_value
+    return confidence_levels.get(source_name, default_value)
 
 
 def new_repo_result(repo_full_name, repo_id=None):
@@ -123,13 +85,6 @@ def new_repo_result(repo_full_name, repo_id=None):
         "fallback_candidates_matched": 0,
         "error_message": "",
     }
-
-
-def read_parquet_if_exists(path):
-    path = Path(path)
-    if not path.exists():
-        return pd.DataFrame()
-    return pd.read_parquet(path)
 
 
 def load_stage_inputs_for_repo(config, repo_full_name):
@@ -251,6 +206,13 @@ def normalize_text_candidate(candidate):
 
 
 def extract_candidate_file_mentions(text):
+    if text is None:
+        return []
+    if isinstance(text, float) and pd.isna(text):
+        return []
+    if not isinstance(text, str):
+        text = str(text)
+    text = text.strip()
     if not text:
         return []
 
@@ -377,7 +339,7 @@ def make_issue_file_link_row(
 
 
 def link_issue_files_via_pr_chain(config, repo_full_name, repo_result, indexes):
-    confidence = config.linkage.issue_file.confidence_levels.get("pr_commit_chain", "high")
+    confidence = get_issue_file_confidence(config, "pr_commit_chain", "high")
     rows = []
     linked_issue_numbers = set()
 
@@ -386,10 +348,7 @@ def link_issue_files_via_pr_chain(config, repo_full_name, repo_result, indexes):
         if not issue_pr_rows:
             continue
 
-        source_pr_ids = set()
-        source_pr_numbers = set()
-        source_commit_shas = set()
-        linked_file_paths = set()
+        source_pr_ids, source_pr_numbers, source_commit_shas, linked_file_paths = set(), set(), set(), set()
 
         for issue_pr_row in issue_pr_rows:
             pr_id = issue_pr_row.get("pr_id")
@@ -419,39 +378,44 @@ def link_issue_files_via_pr_chain(config, repo_full_name, repo_result, indexes):
         repo_result["issues_linked_by_pr_chain"] += 1
 
         for file_path in sorted(linked_file_paths):
-            rows.append(
-                make_issue_file_link_row(
-                    repo_id=issue_row.get("repo_id"),
-                    repo_full_name=repo_full_name,
-                    issue_id=issue_row.get("issue_id"),
-                    issue_number=issue_number,
-                    file_path=file_path,
-                    source="pr_commit_chain",
-                    confidence_level=confidence,
-                    source_pr_ids=source_pr_ids,
-                    source_pr_numbers=source_pr_numbers,
-                    source_commit_shas=source_commit_shas,
-                    evidence_count=len(source_commit_shas),
-                )
-            )
-
+            rows.append(make_issue_file_link_row(repo_id=issue_row.get("repo_id"),
+                                                repo_full_name=repo_full_name,
+                                                issue_id=issue_row.get("issue_id"),
+                                                issue_number=issue_number,
+                                                file_path=file_path,
+                                                source="pr_commit_chain",
+                                                confidence_level=confidence,
+                                                source_pr_ids=source_pr_ids,
+                                                source_pr_numbers=source_pr_numbers,
+                                                source_commit_shas=source_commit_shas,
+                                                evidence_count=len(source_commit_shas))
+                        )
     return rows, linked_issue_numbers
 
 
 def iter_issue_text_sources(issue_row, comment_rows, include_comment_text_fallback=True):
-    title = issue_row.get("title")
+    def clean_text(value):
+        if value is None:
+            return None
+        if isinstance(value, float) and pd.isna(value):
+            return None
+        if not isinstance(value, str):
+            value = str(value)
+        value = value.strip()
+        return value or None
+
+    title = clean_text(issue_row.get("title"))
     if title:
         yield "title", title
-
-    body = issue_row.get("body")
+    body = clean_text(issue_row.get("body"))
     if body:
         yield "body", body
 
     if include_comment_text_fallback:
         for comment_row in comment_rows:
-            body = comment_row.get("body")
-            if body:
-                yield "comment", body
+            comment_body = clean_text(comment_row.get("body"))
+            if comment_body:
+                yield "comment", comment_body
 
 
 def clip_snippet(text, max_chars=240):
@@ -465,17 +429,13 @@ def clip_snippet(text, max_chars=240):
 
 def link_issue_files_via_text_fallback(config, repo_full_name, repo_result, indexes, excluded_issue_numbers=None):
     excluded_issue_numbers = excluded_issue_numbers or set()
-    confidence = config.linkage.issue_file.confidence_levels.get("issue_text_file_reference", "medium")
+    confidence = get_issue_file_confidence(config, "issue_text_file_reference", "medium")
     include_comments = get_issue_file_linking_option(config, "include_comment_text_fallback", True)
-    require_repo_match = get_issue_file_linking_option(config, "require_repo_file_universe_match_for_text_links", True)
+    require_repo_match = get_issue_file_linking_option(config, "require_repo_file_match_for_text_links", True)
     allow_unique_basename_match = get_issue_file_linking_option(config, "allow_unique_basename_match", True)
 
-    all_paths, basename_to_paths = build_repo_file_universe(
-        pd.DataFrame(indexes["commit_file_rows_by_sha"].get(next(iter(indexes["commit_file_rows_by_sha"])), []))
-        if False else pd.DataFrame(
-            [row for rows in indexes["commit_file_rows_by_sha"].values() for row in rows]
-        )
-    )
+    commit_file_rows = [row for rows in indexes["commit_file_rows_by_sha"].values() for row in rows]
+    all_paths, basename_to_paths = build_repo_file_universe(pd.DataFrame(commit_file_rows))
 
     rows = []
     linked_issue_numbers = set()
@@ -487,11 +447,7 @@ def link_issue_files_via_text_fallback(config, repo_full_name, repo_result, inde
         comment_rows = indexes["comments_by_issue_number"].get(issue_number, [])
         matched_paths = {}
 
-        for text_source, text_value in iter_issue_text_sources(
-            issue_row,
-            comment_rows,
-            include_comment_text_fallback=include_comments,
-        ):
+        for text_source, text_value in iter_issue_text_sources(issue_row, comment_rows, include_comment_text_fallback=include_comments):
             candidates = extract_candidate_file_mentions(text_value)
             repo_result["fallback_candidates_seen"] += len(candidates)
             if not candidates:
@@ -509,10 +465,7 @@ def link_issue_files_via_text_fallback(config, repo_full_name, repo_result, inde
 
             for resolved_path in resolved_paths:
                 repo_result["fallback_candidates_matched"] += 1
-                matched_paths.setdefault(resolved_path, {
-                    "matched_text_source": text_source,
-                    "matched_text_snippet": clip_snippet(text_value),
-                })
+                matched_paths.setdefault(resolved_path, {"matched_text_source": text_source, "matched_text_snippet": clip_snippet(text_value)})
 
         if not matched_paths:
             continue
@@ -523,22 +476,17 @@ def link_issue_files_via_text_fallback(config, repo_full_name, repo_result, inde
         for file_path in sorted(matched_paths.keys()):
             evidence = matched_paths[file_path]
             rows.append(
-                make_issue_file_link_row(
-                    repo_id=issue_row.get("repo_id"),
-                    repo_full_name=repo_full_name,
-                    issue_id=issue_row.get("issue_id"),
-                    issue_number=issue_number,
-                    file_path=file_path,
-                    source="issue_text_file_reference",
-                    confidence_level=confidence,
-                    evidence_count=1,
-                    matched_text_source=evidence["matched_text_source"],
-                    matched_text_snippet=evidence["matched_text_snippet"],
-                )
-            )
-
+                make_issue_file_link_row(repo_id=issue_row.get("repo_id"),
+                                        repo_full_name=repo_full_name,
+                                        issue_id=issue_row.get("issue_id"),
+                                        issue_number=issue_number,
+                                        file_path=file_path,
+                                        source="issue_text_file_reference",
+                                        confidence_level=confidence,
+                                        evidence_count=1,
+                                        matched_text_source=evidence["matched_text_source"],
+                                        matched_text_snippet=evidence["matched_text_snippet"]))
     return rows, linked_issue_numbers
-
 
 def merge_part_files(part_paths, sort_columns=None):
     frames = []
@@ -619,14 +567,14 @@ def write_run_manifest(config, repo_rows, summary_rows):
         "generated_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary_rows": summary_rows,
         "output_table": str(config.outputs.issue_file_links_table),
-        "options_used": {
-            "resume_mode": get_issue_file_linking_option(config, "resume_mode", "checkpoint_only"),
-            "write_batch_size": get_issue_file_linking_option(config, "write_batch_size", 5000),
-            "include_comment_text_fallback": get_issue_file_linking_option(config, "include_comment_text_fallback", True),
-            "require_repo_file_universe_match_for_text_links": get_issue_file_linking_option(config, "require_repo_file_universe_match_for_text_links", True),
-            "allow_unique_basename_match": get_issue_file_linking_option(config, "allow_unique_basename_match", True),
-            "max_repos_per_run": get_issue_file_linking_option(config, "max_repos_per_run", None),
-        },
+            "options_used": {
+                            "resume_mode": get_issue_file_linking_option(config, "resume_mode", "checkpoint_only"),
+                            "write_batch_size": get_issue_file_linking_option(config, "write_batch_size", 5000),
+                            "include_comment_text_fallback": get_issue_file_linking_option(config, "include_comment_text_fallback", True),
+                            "require_repo_file_match_for_text_links": get_issue_file_linking_option(config, "require_repo_file_match_for_text_links", True),
+                            "allow_unique_basename_match": get_issue_file_linking_option(config, "allow_unique_basename_match", True),
+                            "max_repos_per_run": get_issue_file_linking_option(config, "max_repos_per_run", None),
+                        }
     }
 
     with manifest_path.open("w", encoding="utf-8") as handle:
@@ -656,7 +604,7 @@ def process_repo(config, logger, repo_row):
         "write_batch_size",
         get_stage_option(config, "issue_extraction", "write_batch_size", 5000),
     )
-    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / repo_full_name.replace("/", "__")
+    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / sanitize_repo_name(repo_full_name)
     writer = IssueFileLinkRepoChunkWriter(config=config, repo_dir=repo_dir, batch_size=batch_size)
 
     stage_inputs = load_stage_inputs_for_repo(config, repo_full_name)
@@ -740,7 +688,7 @@ def main(config_path=None):
     ensure_project_directories(config)
     logger = setup_logger(config)
 
-    if not getattr(config.linkage.issue_file, "enabled", True):
+    if not get_issue_file_linking_option(config, "enabled", True):
         logger.info("Issue-file linkage is disabled in config. Exiting.")
         return
 

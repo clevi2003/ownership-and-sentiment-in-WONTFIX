@@ -41,14 +41,14 @@ github:
 
 study_windows:
   repo_activity:
-    activity_cutoff_date: "2024-01-01"
+    activity_cutoff_date: "2022-01-01"
     use_last_push_date: true
   issue_collection:
-    start_date: "2024-01-01"
+    start_date: "2022-01-01"
     end_date: "2025-12-31"
     include_open_issues_after_end_date: true
   participation_analysis:
-    start_date: "2024-01-01"
+    start_date: "2022-01-01"
     end_date: "2025-12-31"
     time_window_unit: "month"
 
@@ -68,11 +68,12 @@ repo_selection:
       - "TypeScript"
     owners_allowlist: []
     owners_blocklist: []
-    repos_allowlist: []
+    repos_allowlist: # []
+      - "nextcloud/docker"
     repos_blocklist: []
   activity_definition:
     field: "pushed_at"
-    cutoff_date: "2024-01-01"
+    cutoff_date: "2022-01-01"
   archival_policy:
     if_archive_status_unavailable: "keep_and_flag"
   fork_policy:
@@ -274,18 +275,18 @@ linkage:
     enabled: true
     source: "github_pr_commit_list"
 
-#  issue_file:
-#    enabled: true
-#    allowed_link_sources:
-#      - "pr_commit_chain"
-#      - "issue_text_file_reference"
-#    confidence_levels:
-#      pr_commit_chain: "high"
-#      issue_text_file_reference: "medium"
-#    allow_rq_specific_missing_links: true
-#    notes:
-#      - "Issues without file links may still be used for RQ1 and RQ3."
-#      - "RQ2 may use only issues with acceptable issue-file linkage."
+  issue_file:
+    enabled: true
+    allowed_link_sources:
+      - "pr_commit_chain"
+      - "issue_text_file_reference"
+    confidence_levels:
+      pr_commit_chain: "high"
+      issue_text_file_reference: "medium"
+    allow_rq_specific_missing_links: true
+    notes:
+      - "Issues without file links should be ok to use for RQ1 and RQ3."
+      - "RQ2 should prob use only issues with high and maybe medium confidence issue-file linkage."
 issue_file_linking:
   enabled: true
   max_repos_per_run: 1
@@ -302,8 +303,13 @@ identity_resolution:
   contributor_key_format: "{repo_id}::{resolved_identity}"
   matching_priority:
     - "github_login_exact"
-    - "normalized_name_exact"
     - "email_exact"
+    - "normalized_name_exact"
+  max_repos_per_run: 1
+  resume_mode: "fresh" # fresh | checkpoint_only | raw_or_checkpoint
+  write_batch_size: 1000
+  write_cluster_summary: true
+  preserve_normalized_columns: true
   normalized_name_rules:
     lowercase: true
     strip_whitespace: true
@@ -333,7 +339,7 @@ storage:
   raw_format: "json"
   processed_format: "parquet"
   summary_format: "csv"
-  processed_merge_mode: "partitioned_dataset"
+  processed_merge_mode: "single_parquet"
   compression:
     raw_json_gzip: true
     parquet_compression: "snappy"
@@ -353,16 +359,17 @@ outputs:
   pull_requests_table: "./data/processed/pull_requests.parquet"
   commits_table: "./data/processed/commits.parquet"
   commit_files_table: "./data/processed/commit_files.parquet"
-  contributor_identity_table: "./data/linked/contributor_identity_map.parquet"
-  issue_pr_links_table: "./data/linked/issue_pr_links.parquet"
-  pr_commit_links_table: "./data/linked/pr_commit_links.parquet"
-  issue_file_links_table: "./data/linked/issue_file_links.parquet"
-  extraction_summary_csv: "./logs/extraction/issues_comments_extraction_summary.csv"
-  run_manifest_json: "./logs/extraction/issues_comments_run_manifest.json"
-  resolved_config_snapshot_yaml: "./logs/extraction/resolved_study_config.yaml"
-  comparison_issue_set_table: "./data/processed/comparison_issue_set.parquet"
-  wontfix_issue_set_table: "./data/processed/wontfix_issue_set.parquet"
-  comparison_issue_qa_summary_csv: "./logs/qa/comparison_issue_set_summary.csv"
+  comparison_issue_set_table: "./data/final/issue_sets/comparison_issue_set.parquet"
+  wontfix_issue_set_table: "./data/final/issue_sets/wontfix_issue_set.parquet"
+  issue_pr_links_table: "./data/linked/entity_links/issue_pr_links.parquet"
+  pr_commit_links_table: "./data/linked/entity_links/pr_commit_links.parquet"
+  issue_file_links_table: "./data/linked/entity_links/issue_file_links.parquet"
+  contributor_identity_table: "./data/linked/identity/contributor_identity_map.parquet"
+  contributor_identity_clusters_table: "./data/linked/identity/contributor_identity_clusters.parquet"
+  issues_resolved_table: "./data/linked/resolved_entities/issues_resolved.parquet"
+  issue_comments_resolved_table: "./data/linked/resolved_entities/issue_comments_resolved.parquet"
+  pull_requests_resolved_table: "./data/linked/resolved_entities/pull_requests_resolved.parquet"
+  commits_resolved_table: "./data/linked/resolved_entities/commits_resolved.parquet"
 
 checkpointing:
   enabled: true

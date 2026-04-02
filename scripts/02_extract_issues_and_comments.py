@@ -25,7 +25,7 @@ from utils.github_api import build_session, fetch_repository_metadata, get_githu
 from utils.io_helpers import load_repo_list, save_json, write_processed_table
 from utils.chunk_writers import IssueCommentRepoChunkWriter
 from utils.labels import get_wontfix_variants, issue_has_wontfix_label, normalize_label_name
-from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint
+from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint, sanitize_repo_name
 
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
@@ -365,12 +365,10 @@ def iter_issue_comment_pages(session, headers, config, logger, comments_url):
         page += 1
 
 
-def merge_chunked_batches(config, logger):
+def merge_chunked_batches(config, logger, repository_rows=None):
     batch_root = get_batch_root(config, BATCH_FOLDER_NAME)
-    repo_frames = []
     issue_frames = []
     comment_frames = []
-
     if not batch_root.exists():
         logger.warning("Batch root does not exist: %s", batch_root)
         return
@@ -379,22 +377,21 @@ def merge_chunked_batches(config, logger):
         if not repo_dir.is_dir():
             continue
 
-        repo_path = repo_dir / "repositories.parquet"
-        if repo_path.exists():
-            repo_frames.append(pd.read_parquet(repo_path))
-
         for issue_path in sorted(repo_dir.glob("issues_part_*.parquet")):
             issue_frames.append(pd.read_parquet(issue_path))
-
         for comment_path in sorted(repo_dir.glob("issue_comments_part_*.parquet")):
             comment_frames.append(pd.read_parquet(comment_path))
 
-    repositories_df = pd.concat(repo_frames, ignore_index=True) if repo_frames else pd.DataFrame()
+    repositories_df = pd.DataFrame(repository_rows or [])
     issues_df = pd.concat(issue_frames, ignore_index=True) if issue_frames else pd.DataFrame()
     comments_df = pd.concat(comment_frames, ignore_index=True) if comment_frames else pd.DataFrame()
 
-    if not repositories_df.empty and "repo_id" in repositories_df.columns:
-        repositories_df = repositories_df.drop_duplicates(subset=["repo_id"])
+    if not repositories_df.empty:
+        if "repo_id" in repositories_df.columns:
+            repositories_df = repositories_df.drop_duplicates(subset=["repo_id"])
+        elif "full_name" in repositories_df.columns:
+            repositories_df = repositories_df.drop_duplicates(subset=["full_name"])
+
     if not issues_df.empty and "issue_id" in issues_df.columns:
         issues_df = issues_df.drop_duplicates(subset=["issue_id"])
     if not comments_df.empty and "comment_id" in comments_df.columns:
@@ -412,7 +409,7 @@ def merge_chunked_batches(config, logger):
     write_processed_table(issues_df, Path(config.outputs.issues_table), config)
     write_processed_table(comments_df, Path(config.outputs.issue_comments_table), config)
 
-    logger.info("Merged chunked repo batches into final processed tables.")
+    logger.info("Merged issue/comment batch shards and wrote repositories table from collected repository rows.")
 
 
 def write_summary_csv(summary_rows, output_path):
@@ -498,13 +495,21 @@ def fetch_comments_for_issue(session, headers, config, logger, repo_full_name, i
         return
     if int(issue_payload.get("comments") or 0) <= 0:
         return
-
     comments_url = issue_payload.get("comments_url")
     issue_number = issue_payload.get("number")
+    issue_comment_count = int(issue_payload.get("comments") or 0)
     if not comments_url or not issue_number:
         return
 
     result["issue_comment_requests"] += 1
+    if result["issue_comment_requests"] % 25 == 0:
+        logger.info(
+            "Fetching comments | repo=%s | issue=%s | expected_comments=%s | issue_comment_requests=%s",
+            repo_full_name,
+            issue_number,
+            issue_comment_count,
+            result["issue_comment_requests"],
+        )
 
     for page, payload in iter_issue_comment_pages(session, headers, config, logger, comments_url):
         result["comment_pages_fetched"] += 1
@@ -524,7 +529,8 @@ def extract_single_repo(session, headers, config, logger, repo_row):
     result = new_repo_result(repo_full_name, repo_row.get("repo_id"))
     raw_root = get_repo_output_root(config, RAW_FOLDER_NAME, repo_full_name)
     batch_size = get_issue_extraction_option(config, "write_batch_size", 5000)
-    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / repo_full_name.replace("/", "__")
+    safe_repo = sanitize_repo_name(repo_full_name)
+    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / safe_repo
     writer = IssueCommentRepoChunkWriter(config=config, repo_dir=repo_dir, batch_size=batch_size,)
 
     repository_payload = fetch_repository_metadata(session, headers, config, logger, repo_full_name)
@@ -621,18 +627,16 @@ def extract_single_repo(session, headers, config, logger, repo_row):
             CHECKPOINT_PREFIX,
             repo_full_name,
             {
-                "status": "completed",
+                "status": "in_progress",
                 "repo_full_name": repo_full_name,
                 "repo_id": result["repo_id"],
-                "search_shards_planned": result["search_shards_planned"],
                 "search_pages_fetched": result["search_pages_fetched"],
                 "issues_kept": result["issues_kept"],
                 "comments_kept": result["comments_kept"],
-                "raw_files_written": result["raw_files_written"],
             },
         )
 
-    return result
+    return result, repository_row
 
 
 def main():
@@ -662,12 +666,13 @@ def main():
     resume_mode = get_issue_extraction_option(config, "resume_mode", "checkpoint_only")
     if resume_mode == "fresh" and not config.storage.append_processed_batches:
         reset_batch_root(config, BATCH_FOLDER_NAME)
-    elif not get_batch_root(config).exists():
-        get_batch_root(config).mkdir(parents=True, exist_ok=True)
+    elif not get_batch_root(config, BATCH_FOLDER_NAME).exists():
+        get_batch_root(config, BATCH_FOLDER_NAME).mkdir(parents=True, exist_ok=True)
 
     session = build_session(config)
     headers = get_github_headers(config)
     summary_rows = []
+    repository_rows = []
 
     for repo_row in repo_rows:
         repo_full_name = repo_row["full_name"]
@@ -702,8 +707,10 @@ def main():
 
         logger.info("Starting extraction for %s", repo_full_name)
         try:
-            result = extract_single_repo(session, headers, config, logger, repo_row)
+            result, repository_row = extract_single_repo(session, headers, config, logger, repo_row)
             summary_rows.append(result)
+            if repository_row:
+                repository_rows.append(repository_row)
             logger.info(
                 "Completed %s | issues=%s | comments=%s | search_pages=%s",
                 repo_full_name,
@@ -745,7 +752,7 @@ def main():
             time.sleep(pause_seconds)
 
     if summary_rows:
-        merge_chunked_batches(config, logger)
+        merge_chunked_batches(config, logger, repository_rows=repository_rows)
     else:
         logger.warning("No repo rows were processed in this run; skipping batch merge.")
 

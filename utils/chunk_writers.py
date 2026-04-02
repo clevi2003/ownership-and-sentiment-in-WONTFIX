@@ -1,5 +1,6 @@
 from pathlib import Path
 import pandas as pd
+from utils.checkpoints import sanitize_repo_name
 
 
 class BaseRepoChunkWriter:
@@ -16,10 +17,10 @@ class BaseRepoChunkWriter:
         self._part_indices = {}
         self._file_prefixes = {}
 
-    def register_chunked_table(self, table_name, file_prefix):
+    def register_chunked_table(self, table_name):
         self._buffers[table_name] = []
         self._part_indices[table_name] = 1
-        self._file_prefixes[table_name] = file_prefix
+        self._file_prefixes[table_name] = table_name
 
     def write_single_row_table(self, table_name, row, filename=None):
         if table_name in self._single_tables_written:
@@ -44,6 +45,11 @@ class BaseRepoChunkWriter:
                 seen.add(key)
                 deduped.append(row)
         return deduped
+
+    @staticmethod
+    def build_repo_dir(processed_root, stage_name, repo_full_name):
+        safe_name = sanitize_repo_name(repo_full_name)
+        return Path(processed_root) / "_batches" / stage_name / safe_name
 
     def add_row(self, table_name, row):
         if table_name not in self._buffers:
@@ -86,11 +92,12 @@ class IssueCommentRepoChunkWriter(BaseRepoChunkWriter):
     """ Issue/Comment specific writer"""
     def __init__(self, *, config, repo_dir, batch_size=5000):
         super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
-        self.register_chunked_table("issues", "issues")
-        self.register_chunked_table("issue_comments", "issue_comments")
+        self.register_chunked_table("issues")
+        self.register_chunked_table("issue_comments")
 
     def write_repository_row(self, row):
-        self.write_single_row_table("repositories", row, filename="repositories.parquet")
+        #self.write_single_row_table("repositories", row, filename="repositories.parquet")
+        return row
 
     def add_issue_row(self, row):
         self.add_row("issues", row)
@@ -103,9 +110,9 @@ class PullRequestRepoChunkWriter(BaseRepoChunkWriter):
     """ PR specific writer"""
     def __init__(self, *, config, repo_dir, batch_size=5000):
         super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
-        self.register_chunked_table("pull_requests", "pull_requests")
-        self.register_chunked_table("issue_pr_links", "issue_pr_links")
-        self.register_chunked_table("pr_commit_links", "pr_commit_links")
+        self.register_chunked_table("pull_requests")
+        self.register_chunked_table("issue_pr_links")
+        self.register_chunked_table("pr_commit_links")
 
     def add_pr_row(self, row):
         self.add_row("pull_requests", row)
@@ -121,8 +128,8 @@ class CommitHistoryRepoChunkWriter(BaseRepoChunkWriter):
     """ Commit history specific writer"""
     def __init__(self, *, config, repo_dir, batch_size=5000):
         super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
-        self.register_chunked_table("commits", "commits")
-        self.register_chunked_table("commit_files", "commit_files")
+        self.register_chunked_table("commits")
+        self.register_chunked_table("commit_files")
 
     def add_commit_row(self, row):
         self.add_row("commits", row)
@@ -136,7 +143,44 @@ class IssueFileLinkRepoChunkWriter(BaseRepoChunkWriter):
 
     def __init__(self, *, config, repo_dir, batch_size=5000):
         super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
-        self.register_chunked_table("issue_file_links", "issue_file_links")
+        self.register_chunked_table("issue_file_links")
 
     def add_issue_file_link_row(self, row):
         self.add_row("issue_file_links", row)
+
+
+class IdentityResolutionRepoChunkWriter(BaseRepoChunkWriter):
+    """identity resolution specific writer"""
+
+    def __init__(self, *, config, repo_dir, batch_size=5000):
+        super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
+        self.register_chunked_table("contributor_identity_map")
+        self.register_chunked_table("contributor_identity_clusters")
+
+    def add_identity_row(self, row):
+        self.add_row("contributor_identity_map", row)
+
+    def add_cluster_row(self, row):
+        self.add_row("contributor_identity_clusters", row)
+
+
+class ResolvedEntityRepoChunkWriter(BaseRepoChunkWriter):
+    """resolved entity table writer"""
+    def __init__(self, *, config, repo_dir, batch_size=5000):
+        super().__init__(config=config, repo_dir=repo_dir, batch_size=batch_size)
+        self.register_chunked_table("issues_resolved")
+        self.register_chunked_table("issue_comments_resolved")
+        self.register_chunked_table("pull_requests_resolved")
+        self.register_chunked_table("commits_resolved")
+
+    def add_issue_row(self, row):
+        self.add_row("issues_resolved", row)
+
+    def add_comment_row(self, row):
+        self.add_row("issue_comments_resolved", row)
+
+    def add_pull_request_row(self, row):
+        self.add_row("pull_requests_resolved", row)
+
+    def add_commit_row(self, row):
+        self.add_row("commits_resolved", row)

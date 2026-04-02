@@ -328,15 +328,16 @@ class PrCommitLinkConfig:
     enabled: bool
     source: str
 
-# @dataclass
-# class IssueFileLinkConfig:
-#     enabled: bool
-#     allowed_link_sources: list
-#     confidence_levels: dict
-#     allow_rq_specific_missing_links: bool
-#     notes: list = field(default_factory=list)
 @dataclass
 class IssueFileLinkConfig:
+    enabled: bool
+    allowed_link_sources: list
+    confidence_levels: dict
+    allow_rq_specific_missing_links: bool
+    notes: list = field(default_factory=list)
+
+@dataclass
+class IssueFileLinkingRuntimeConfig:
     enabled: bool
     max_repos_per_run: int
     resume_mode: str
@@ -370,6 +371,11 @@ class IdentityResolutionConfig:
     create_contributor_key: bool
     contributor_key_format: str
     matching_priority: list
+    max_repos_per_run: int
+    resume_mode: str
+    write_batch_size: int
+    write_cluster_summary: bool
+    preserve_normalized_columns: bool
     normalized_name_rules: NormalizedNameRulesConfig
     email_rules: EmailRulesConfig
     aggressive_fuzzy_merge: bool
@@ -414,13 +420,21 @@ class OutputsConfig:
     pull_requests_table: str
     commits_table: str
     commit_files_table: str
-    contributor_identity_table: str
+    comparison_issue_set_table: str
+    wontfix_issue_set_table: str
     issue_pr_links_table: str
     pr_commit_links_table: str
     issue_file_links_table: str
+    contributor_identity_table: str
+    contributor_identity_clusters_table: str
+    issues_resolved_table: str
+    issue_comments_resolved_table: str
+    pull_requests_resolved_table: str
+    commits_resolved_table: str
     extraction_summary_csv: str
     run_manifest_json: str
     resolved_config_snapshot_yaml: str
+    comparison_issue_qa_summary_csv: str
 
 @dataclass
 class CheckpointingConfig:
@@ -480,6 +494,7 @@ class StudyConfig:
     git_history_extraction: GitHistoryExtractionConfig
     comparison_set: ComparisonSetConfig
     linkage: LinkageConfig
+    issue_file_linking: IssueFileLinkingRuntimeConfig
     identity_resolution: IdentityResolutionConfig
     bot_handling: BotHandlingConfig
     storage: StorageConfig
@@ -828,7 +843,6 @@ def _parse_comparison_set(data):
 def _parse_linkage(data):
     section = "linkage"
     d = _require_dict(_get_required(data, "linkage", "root"), section)
-
     issue_pr_d = _require_dict(_get_required(d, "issue_pr", section), "linkage.issue_pr")
     pr_commit_d = _require_dict(_get_required(d, "pr_commit", section), "linkage.pr_commit")
     issue_file_d = _require_dict(_get_required(d, "issue_file", section), "linkage.issue_file")
@@ -836,30 +850,54 @@ def _parse_linkage(data):
     return LinkageConfig(
         issue_pr=IssuePrLinkConfig(
             enabled=_get_required(issue_pr_d, "enabled", "linkage.issue_pr"),
-            allowed_link_sources=_require_list(_get_required(issue_pr_d, "allowed_link_sources", "linkage.issue_pr"), "linkage.issue_pr.allowed_link_sources"),
-            confidence_levels=_require_dict(_get_required(issue_pr_d, "confidence_levels", "linkage.issue_pr"), "linkage.issue_pr.confidence_levels"),
-            keep_low_confidence_links=_get_required(issue_pr_d, "keep_low_confidence_links", "linkage.issue_pr"),
+            allowed_link_sources=_require_list(
+                _get_required(issue_pr_d, "allowed_link_sources", "linkage.issue_pr"),
+                "linkage.issue_pr.allowed_link_sources",
+            ),
+            confidence_levels=_require_dict(
+                _get_required(issue_pr_d, "confidence_levels", "linkage.issue_pr"),
+                "linkage.issue_pr.confidence_levels",
+            ),
+            keep_low_confidence_links=_get_required(
+                issue_pr_d,
+                "keep_low_confidence_links",
+                "linkage.issue_pr",
+            ),
         ),
         pr_commit=PrCommitLinkConfig(
             enabled=_get_required(pr_commit_d, "enabled", "linkage.pr_commit"),
             source=_get_required(pr_commit_d, "source", "linkage.pr_commit"),
         ),
-        # issue_file=IssueFileLinkConfig(
-        #     enabled=_get_required(issue_file_d, "enabled", "linkage.issue_file"),
-        #     allowed_link_sources=_require_list(_get_required(issue_file_d, "allowed_link_sources", "linkage.issue_file"), "linkage.issue_file.allowed_link_sources"),
-        #     confidence_levels=_require_dict(_get_required(issue_file_d, "confidence_levels", "linkage.issue_file"), "linkage.issue_file.confidence_levels"),
-        #     allow_rq_specific_missing_links=_get_required(issue_file_d, "allow_rq_specific_missing_links", "linkage.issue_file"),
-        #     notes=_get_optional(issue_file_d, "notes", []),
-        # ),
         issue_file=IssueFileLinkConfig(
             enabled=_get_required(issue_file_d, "enabled", "linkage.issue_file"),
-            max_repos_per_run=_get_required(issue_file_d, "max_repos_per_run", "linkage.issue_file"),
-            resume_mode=_get_required(issue_file_d, "resume_mode", "linkage.issue_file"),
-            write_batch_size=_get_required(issue_file_d, "write_batch_size", "linkage.issue_file"),
-            include_comment_text_fallback=_get_required(issue_file_d, "include_comment_text_fallback", "linkage.issue_file"),
-            require_repo_file_match_for_text_links=_get_required(issue_file_d, "require_repo_file_match_for_text_links", "linkage.issue_file"),
-            allow_unique_basename_match=_get_required(issue_file_d, "allow_unique_basename_match", "linkage.issue_file")
-        )
+            allowed_link_sources=_require_list(
+                _get_required(issue_file_d, "allowed_link_sources", "linkage.issue_file"),
+                "linkage.issue_file.allowed_link_sources",
+            ),
+            confidence_levels=_require_dict(
+                _get_required(issue_file_d, "confidence_levels", "linkage.issue_file"),
+                "linkage.issue_file.confidence_levels",
+            ),
+            allow_rq_specific_missing_links=_get_required(
+                issue_file_d,
+                "allow_rq_specific_missing_links",
+                "linkage.issue_file",
+            ),
+            notes=_get_optional(issue_file_d, "notes", []),
+        ),
+    )
+
+def _parse_issue_file_linking_runtime(data):
+    section = "issue_file_linking"
+    d = _require_dict(_get_required(data, "issue_file_linking", "root"), section)
+    return IssueFileLinkingRuntimeConfig(
+        enabled=_get_required(d, "enabled", section),
+        max_repos_per_run=_get_required(d, "max_repos_per_run", section),
+        resume_mode=_get_required(d, "resume_mode", section),
+        write_batch_size=_get_required(d, "write_batch_size", section),
+        include_comment_text_fallback=_get_required(d, "include_comment_text_fallback", section),
+        require_repo_file_match_for_text_links=_get_required(d, "require_repo_file_match_for_text_links", section),
+        allow_unique_basename_match=_get_required(d, "allow_unique_basename_match", section),
     )
 
 def _parse_identity_resolution(data):
@@ -873,16 +911,25 @@ def _parse_identity_resolution(data):
         scope=_get_required(d, "scope", section),
         create_contributor_key=_get_required(d, "create_contributor_key", section),
         contributor_key_format=_get_required(d, "contributor_key_format", section),
-        matching_priority=_require_list(_get_required(d, "matching_priority", section), "identity_resolution.matching_priority"),
+        matching_priority=_require_list(_get_required(d, "matching_priority", section),
+                                        "identity_resolution.matching_priority"),
+        max_repos_per_run=_get_optional(d, "max_repos_per_run", None),
+        resume_mode=_get_optional(d, "resume_mode", "fresh"),
+        write_batch_size=_get_optional(d, "write_batch_size", 5000),
+        write_cluster_summary=_get_optional(d, "write_cluster_summary", True),
+        preserve_normalized_columns=_get_optional(d, "preserve_normalized_columns", True),
         normalized_name_rules=NormalizedNameRulesConfig(
             lowercase=_get_required(name_rules_d, "lowercase", "identity_resolution.normalized_name_rules"),
-            strip_whitespace=_get_required(name_rules_d, "strip_whitespace", "identity_resolution.normalized_name_rules"),
-            collapse_internal_spaces=_get_required(name_rules_d, "collapse_internal_spaces", "identity_resolution.normalized_name_rules"),
+            strip_whitespace=_get_required(name_rules_d, "strip_whitespace",
+                                           "identity_resolution.normalized_name_rules"),
+            collapse_internal_spaces=_get_required(name_rules_d, "collapse_internal_spaces",
+                                                   "identity_resolution.normalized_name_rules"),
         ),
         email_rules=EmailRulesConfig(
             lowercase=_get_required(email_rules_d, "lowercase", "identity_resolution.email_rules"),
             strip_whitespace=_get_required(email_rules_d, "strip_whitespace", "identity_resolution.email_rules"),
-            allow_email_for_internal_mapping_only=_get_required(email_rules_d, "allow_email_for_internal_mapping_only", "identity_resolution.email_rules"),
+            allow_email_for_internal_mapping_only=_get_required(email_rules_d, "allow_email_for_internal_mapping_only",
+                                                                "identity_resolution.email_rules"),
         ),
         aggressive_fuzzy_merge=_get_required(d, "aggressive_fuzzy_merge", section),
         keep_unresolved_identities=_get_required(d, "keep_unresolved_identities", section),
@@ -923,25 +970,36 @@ def _parse_storage(data):
         append_processed_batches=_get_required(d, "append_processed_batches", section),
     )
 
-def _parse_outputs(data):
-    section = "outputs"
-    d = _require_dict(_get_required(data, "outputs", "root"), section)
+def _parse_outputs(raw_outputs):
+    raw_outputs = raw_outputs or {}
     return OutputsConfig(
-        repo_candidate_list=_get_required(d, "repo_candidate_list", section),
-        repo_included_list=_get_required(d, "repo_included_list", section),
-        repositories_table=_get_required(d, "repositories_table", section),
-        issues_table=_get_required(d, "issues_table", section),
-        issue_comments_table=_get_required(d, "issue_comments_table", section),
-        pull_requests_table=_get_required(d, "pull_requests_table", section),
-        commits_table=_get_required(d, "commits_table", section),
-        commit_files_table=_get_required(d, "commit_files_table", section),
-        contributor_identity_table=_get_required(d, "contributor_identity_table", section),
-        issue_pr_links_table=_get_required(d, "issue_pr_links_table", section),
-        pr_commit_links_table=_get_required(d, "pr_commit_links_table", section),
-        issue_file_links_table=_get_required(d, "issue_file_links_table", section),
-        extraction_summary_csv=_get_required(d, "extraction_summary_csv", section),
-        run_manifest_json=_get_required(d, "run_manifest_json", section),
-        resolved_config_snapshot_yaml=_get_required(d, "resolved_config_snapshot_yaml", section),
+        repo_candidate_list=raw_outputs.get("repo_candidate_list", "./data/processed/repo_candidates.csv"),
+        repo_included_list=raw_outputs.get("repo_included_list", "./data/processed/repo_list.csv"),
+        repositories_table=raw_outputs.get("repositories_table", "./data/processed/repositories.parquet"),
+        issues_table=raw_outputs.get("issues_table", "./data/processed/issues.parquet"),
+        issue_comments_table=raw_outputs.get("issue_comments_table", "./data/processed/issue_comments.parquet"),
+        pull_requests_table=raw_outputs.get("pull_requests_table", "./data/processed/pull_requests.parquet"),
+        commits_table=raw_outputs.get("commits_table", "./data/processed/commits.parquet"),
+        commit_files_table=raw_outputs.get("commit_files_table", "./data/processed/commit_files.parquet"),
+
+        comparison_issue_set_table=raw_outputs.get("comparison_issue_set_table", "./data/final/issue_sets/comparison_issue_set.parquet"),
+        wontfix_issue_set_table=raw_outputs.get("wontfix_issue_set_table", "./data/final/issue_sets/wontfix_issue_set.parquet"),
+
+        issue_pr_links_table=raw_outputs.get("issue_pr_links_table", "./data/linked/entity_links/issue_pr_links.parquet"),
+        pr_commit_links_table=raw_outputs.get("pr_commit_links_table", "./data/linked/entity_links/pr_commit_links.parquet"),
+        issue_file_links_table=raw_outputs.get("issue_file_links_table", "./data/linked/entity_links/issue_file_links.parquet"),
+        contributor_identity_table=raw_outputs.get("contributor_identity_table", "./data/linked/identity/contributor_identity_map.parquet"),
+
+        contributor_identity_clusters_table=raw_outputs.get("contributor_identity_clusters_table", "./data/linked/identity/contributor_identity_clusters.parquet"),
+        issues_resolved_table=raw_outputs.get("issues_resolved_table", "./data/linked/resolved_entities/issues_resolved.parquet"),
+        issue_comments_resolved_table=raw_outputs.get("issue_comments_resolved_table", "./data/linked/resolved_entities/issue_comments_resolved.parquet" ),
+        pull_requests_resolved_table=raw_outputs.get("pull_requests_resolved_table", "./data/linked/resolved_entities/pull_requests_resolved.parquet"),
+        commits_resolved_table=raw_outputs.get("commits_resolved_table", "./data/linked/resolved_entities/commits_resolved.parquet"),
+
+        extraction_summary_csv=raw_outputs.get("extraction_summary_csv", "./logs/extraction/issues_comments_extraction_summary.csv"),
+        run_manifest_json=raw_outputs.get("run_manifest_json", "./logs/extraction/issues_comments_run_manifest.json"),
+        resolved_config_snapshot_yaml=raw_outputs.get("resolved_config_snapshot_yaml", "./logs/extraction/resolved_study_config.yaml"),
+        comparison_issue_qa_summary_csv=raw_outputs.get("comparison_issue_qa_summary_csv", "./logs/qa/comparison_issue_set_summary.csv"),
     )
 
 def _parse_checkpointing(data):
@@ -1028,6 +1086,7 @@ def load_study_config(config_path):
         git_history_extraction=_parse_git_history_extraction(raw_data),
         comparison_set=_parse_comparison_set(raw_data),
         linkage=_parse_linkage(raw_data),
+        issue_file_linking=_parse_issue_file_linking_runtime(raw_data),
         identity_resolution=_parse_identity_resolution(raw_data),
         bot_handling=_parse_bot_handling(raw_data),
         storage=_parse_storage(raw_data),
@@ -1066,14 +1125,10 @@ def validate_study_config(config):
     if config.repo_discovery.final_repo_limit <= 0:
         raise ConfigError("repo_discovery.final_repo_limit must be > 0.")
     if config.repo_discovery.final_repo_limit > config.repo_discovery.candidate_repo_limit:
-        raise ConfigError(
-            "repo_discovery.final_repo_limit should be less than or equal to repo_discovery.candidate_repo_limit."
-        )
+        raise ConfigError("repo_discovery.final_repo_limit should be less than or equal to repo_discovery.candidate_repo_limit.")
     allowed_wontfix_count_modes = {"repo_search_total_count"}
     if config.repo_discovery.final_wontfix_count_screen.count_mode not in allowed_wontfix_count_modes:
-        raise ConfigError("repo_discovery.final_wontfix_count_screen.count_mode must be one of "
-                          f"{sorted(allowed_wontfix_count_modes)}.")
-
+        raise ConfigError(f"repo_discovery.final_wontfix_count_screen.count_mode must be one of {sorted(allowed_wontfix_count_modes)}.")
     if config.repo_discovery.final_wontfix_count_screen.min_approx_wontfix_issue_count < 0:
         raise ConfigError("repo_discovery.final_wontfix_count_screen.min_approx_wontfix_issue_count must be >= 0.")
 
@@ -1107,26 +1162,19 @@ def validate_study_config(config):
 
     if config.issue_extraction.max_issue_pages_per_repo_per_state <= 0:
         raise ConfigError("issue_extraction.max_issue_pages_per_repo_per_state must be > 0.")
-
     if config.issue_extraction.max_comment_pages_per_issue <= 0:
         raise ConfigError("issue_extraction.max_comment_pages_per_issue must be > 0.")
-
     if config.issue_extraction.write_batch_size <= 0:
         raise ConfigError("issue_extraction.write_batch_size must be > 0.")
-
     if config.issue_extraction.resume_mode not in {"checkpoint_only", "raw_or_checkpoint", "fresh"}:
         raise ConfigError("issue_extraction.resume_mode must be one of checkpoint_only, raw_or_checkpoint, fresh.")
-
     if config.issue_extraction.search_max_results_per_shard <= 0:
         raise ConfigError("issue_extraction.search_max_results_per_shard must be > 0.")
 
     if config.issue_extraction.search_max_shard_splits <= 0:
         raise ConfigError("issue_extraction.search_max_shard_splits must be > 0.")
 
-    if (
-        config.issue_extraction.max_search_pages_per_shard is not None
-        and config.issue_extraction.max_search_pages_per_shard <= 0
-    ):
+    if (config.issue_extraction.max_search_pages_per_shard is not None and config.issue_extraction.max_search_pages_per_shard <= 0):
         raise ConfigError("issue_extraction.max_search_pages_per_shard must be > 0 when provided.")
 
     allowed_visibility = {"public"}
@@ -1137,15 +1185,22 @@ def validate_study_config(config):
 
     allowed_time_units = {"month", "quarter", "year"}
     if config.study_windows.participation_analysis.time_window_unit not in allowed_time_units:
-        raise ConfigError(
-            f"study_windows.participation_analysis.time_window_unit must be one of {sorted(allowed_time_units)}."
-        )
+        raise ConfigError(f"study_windows.participation_analysis.time_window_unit must be one of {sorted(allowed_time_units)}.")
 
     allowed_identity_scopes = {"repository_local"}
     if config.identity_resolution.scope not in allowed_identity_scopes:
-        raise ConfigError(
-            f"identity_resolution.scope must be one of {sorted(allowed_identity_scopes)}."
-        )
+        raise ConfigError(f"identity_resolution.scope must be one of {sorted(allowed_identity_scopes)}.")
+    allowed_identity_match_methods = {"github_login_exact", "email_exact", "normalized_name_exact"}
+    for value in config.identity_resolution.matching_priority:
+        if value not in allowed_identity_match_methods:
+            raise ConfigError(f"identity_resolution.matching_priority values must be in {sorted(allowed_identity_match_methods)}.")
+    if getattr(config.identity_resolution, "write_batch_size", 1) <= 0:
+        raise ConfigError("identity_resolution.write_batch_size must be > 0.")
+    if getattr(config.identity_resolution, "max_repos_per_run",
+               None) is not None and config.identity_resolution.max_repos_per_run <= 0:
+        raise ConfigError("identity_resolution.max_repos_per_run must be > 0 when provided.")
+    if getattr(config.identity_resolution, "resume_mode", "fresh") not in {"fresh", "checkpoint_only", "raw_or_checkpoint"}:
+        raise ConfigError("identity_resolution.resume_mode must be 'fresh', 'checkpoint_only', or 'raw_or_checkpoint'.")
 
     if not config.label_normalization.outcome_labels.wontfix.variants:
         raise ConfigError("At least one WONTFIX label variant must be provided.")
@@ -1192,13 +1247,21 @@ def resolve_config_paths(config):
     resolved.outputs.pull_requests_table = _resolve_path(base, resolved.outputs.pull_requests_table)
     resolved.outputs.commits_table = _resolve_path(base, resolved.outputs.commits_table)
     resolved.outputs.commit_files_table = _resolve_path(base, resolved.outputs.commit_files_table)
+    resolved.outputs.comparison_issue_set_table = _resolve_path(base, resolved.outputs.comparison_issue_set_table)
+    resolved.outputs.wontfix_issue_set_table = _resolve_path(base, resolved.outputs.wontfix_issue_set_table)
     resolved.outputs.contributor_identity_table = _resolve_path(base, resolved.outputs.contributor_identity_table)
+    resolved.outputs.contributor_identity_clusters_table = _resolve_path(base, resolved.outputs.contributor_identity_clusters_table)
     resolved.outputs.issue_pr_links_table = _resolve_path(base, resolved.outputs.issue_pr_links_table)
     resolved.outputs.pr_commit_links_table = _resolve_path(base, resolved.outputs.pr_commit_links_table)
     resolved.outputs.issue_file_links_table = _resolve_path(base, resolved.outputs.issue_file_links_table)
     resolved.outputs.extraction_summary_csv = _resolve_path(base, resolved.outputs.extraction_summary_csv)
     resolved.outputs.run_manifest_json = _resolve_path(base, resolved.outputs.run_manifest_json)
     resolved.outputs.resolved_config_snapshot_yaml = _resolve_path(base, resolved.outputs.resolved_config_snapshot_yaml)
+    resolved.outputs.comparison_issue_qa_summary_csv = _resolve_path(base, resolved.outputs.comparison_issue_qa_summary_csv)
+    resolved.outputs.issues_resolved_table = _resolve_path(base, resolved.outputs.issues_resolved_table)
+    resolved.outputs.issue_comments_resolved_table = _resolve_path(base, resolved.outputs.issue_comments_resolved_table)
+    resolved.outputs.pull_requests_resolved_table = _resolve_path(base, resolved.outputs.pull_requests_resolved_table)
+    resolved.outputs.commits_resolved_table = _resolve_path(base, resolved.outputs.commits_resolved_table)
 
     resolved.checkpointing.checkpoint_dir = _resolve_path(base, resolved.checkpointing.checkpoint_dir)
     resolved.logging.extraction_log_dir = _resolve_path(base, resolved.logging.extraction_log_dir)
@@ -1209,31 +1272,44 @@ def resolve_config_paths(config):
 
     return resolved
 
+from pathlib import Path
+
+def _ensure_directory(path_str):
+    path = Path(path_str)
+
+    # If path has a suffix, treat it as a file → create parent dir
+    if path.suffix:
+        path = path.parent
+
+    path.mkdir(parents=True, exist_ok=True)
+
+
 def ensure_project_directories(config):
-    paths_to_create = [
-        config.paths.data_root,
-        config.paths.raw_root,
-        config.paths.processed_root,
-        config.paths.linked_root,
-        config.paths.features_root,
-        config.paths.final_root,
-        config.paths.logs_root,
-        config.checkpointing.checkpoint_dir,
-        config.logging.extraction_log_dir,
-        config.logging.normalization_log_dir,
-        config.logging.linkage_log_dir,
-        config.logging.qa_log_dir,
-    ]
+    # required path roots must be made
+    for field_name in vars(config.paths):
+        path_str = getattr(config.paths, field_name)
+        if path_str:
+            _ensure_directory(path_str)
 
-    if config.git_history_extraction.enabled:
-        paths_to_create.append(config.git_history_extraction.clone_root)
+    # output paths can include files, so only ensure dir if not a filename
+    for field_name in vars(config.outputs):
+        path_str = getattr(config.outputs, field_name)
+        if path_str:
+            _ensure_directory(path_str)
 
-    for path_str in paths_to_create:
-        Path(path_str).mkdir(parents=True, exist_ok=True)
+    # logging directories
+    for field_name in vars(config.logging):
+        path_str = getattr(config.logging, field_name)
+        if isinstance(path_str, str) and ("log" in field_name or "dir" in field_name):
+            _ensure_directory(path_str)
+
+    # checkpoint directory
+    if config.checkpointing.checkpoint_dir:
+        _ensure_directory(config.checkpointing.checkpoint_dir)
 
 def config_to_dict(config):
     """
-    Lightweight helper for debugging. Converts the dataclass tree into plain dictionaries.
+    little helper for debugging. converts the dataclass tree into plain dicts.
     """
     if hasattr(config, "__dataclass_fields__"):
         result = {}

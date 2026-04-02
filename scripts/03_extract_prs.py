@@ -16,7 +16,7 @@ from config.study_config_loader import ensure_project_directories, load_study_co
 from utils.github_api import build_session, fetch_repository_metadata, get_github_headers, make_request
 from utils.io_helpers import load_repo_list, save_json, write_processed_table
 from utils.chunk_writers import PullRequestRepoChunkWriter
-from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint
+from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint, sanitize_repo_name
 from utils.regex_expressions import CLOSING_CLAUSE_PATTERN, ISSUE_REF_PATTERN, COMMIT_ISSUE_REF_PATTERN, ISSUE_NUMBER_FROM_REF_PATTERNS
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
@@ -422,7 +422,8 @@ def process_repo(session, headers, config, logger, repo_row, issues_df):
     result = new_repo_result(repo_full_name, repo_id=repo_id)
     raw_root = get_repo_output_root(config, RAW_FOLDER_NAME, repo_full_name)
     batch_size = get_issue_extraction_option(config, "write_batch_size", 5000)
-    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / repo_full_name.replace("/", "__")
+    safe_repo = sanitize_repo_name(repo_full_name)
+    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / safe_repo
     writer = PullRequestRepoChunkWriter(config=config, repo_dir=repo_dir, batch_size=batch_size,)
 
     repo_issues = issues_df[issues_df["repo_full_name"] == repo_full_name].copy()
