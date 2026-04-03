@@ -184,3 +184,63 @@ class ResolvedEntityRepoChunkWriter(BaseRepoChunkWriter):
 
     def add_commit_row(self, row):
         self.add_row("commits_resolved", row)
+
+class SentimentFeatureRepoChunkWriter:
+    """
+    Repo-local chunk writer for the sentiment feature stage.
+
+    Writes two parquet part streams under:
+        data/processed/_batches/sentiment_features/<safe_repo_name>/
+
+    Expected filenames:
+        comment_sentiment_features_part_00001.parquet
+        issue_sentiment_features_part_00001.parquet
+    """
+
+    def __init__(self, config, repo_dir, batch_size=5000):
+        self.config = config
+        self.repo_dir = Path(repo_dir)
+        self.repo_dir.mkdir(parents=True, exist_ok=True)
+        self.batch_size = max(int(batch_size or 1), 1)
+
+        self._comment_rows = []
+        self._issue_rows = []
+
+        self._comment_part_index = 1
+        self._issue_part_index = 1
+
+    def add_comment_row(self, row):
+        if row is None:
+            return
+        self._comment_rows.append(row)
+        if len(self._comment_rows) >= self.batch_size:
+            self._flush_comment_rows()
+
+    def add_issue_row(self, row):
+        if row is None:
+            return
+        self._issue_rows.append(row)
+        if len(self._issue_rows) >= self.batch_size:
+            self._flush_issue_rows()
+
+    def finalize(self):
+        self._flush_comment_rows()
+        self._flush_issue_rows()
+
+    def _flush_comment_rows(self):
+        if not self._comment_rows:
+            return
+        df = pd.DataFrame(self._comment_rows)
+        output_path = self.repo_dir / f"comment_sentiment_features_part_{self._comment_part_index:05d}.parquet"
+        df.to_parquet(output_path, index=False, compression=self.config.storage.compression.parquet_compression)
+        self._comment_rows = []
+        self._comment_part_index += 1
+
+    def _flush_issue_rows(self):
+        if not self._issue_rows:
+            return
+        df = pd.DataFrame(self._issue_rows)
+        output_path = self.repo_dir / f"issue_sentiment_features_part_{self._issue_part_index:05d}.parquet"
+        df.to_parquet(output_path, index=False, compression=self.config.storage.compression.parquet_compression)
+        self._issue_rows = []
+        self._issue_part_index += 1

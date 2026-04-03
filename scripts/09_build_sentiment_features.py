@@ -13,20 +13,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from config.study_config_loader import ensure_project_directories, load_study_config
 from utils.checkpoints import get_batch_root, get_stage_option, reset_batch_root, sanitize_repo_name, should_skip_repo, write_repo_checkpoint
-from utils.io_helpers import collect_repo_part_files, load_repo_list, load_table, repo_filter, write_merged_or_partitioned_output
-from utils.sentiment_utils import (
-    SentimentAnalyzerWrapper,
-    SentimentFeatureRepoChunkWriter,
-    clean_text,
-    compute_series_slope,
-    safe_divide,
-    safe_to_datetime,
-    score_text_features,
-    split_early_late,
-    take_mean,
-    take_median,
-    take_std,
-)
+from utils.io_helpers import collect_repo_part_files, load_repo_list, load_table, repo_filter, write_merged_or_partitioned_output, write_summary_csv, safe_divide, safe_to_datetime, take_mean, take_median, take_std
+from utils.sentiment_utils import SentimentAnalyzerWrapper, clean_text, compute_series_slope, score_text_features, split_early_late
+from utils.chunk_writers import SentimentFeatureRepoChunkWriter
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
 LOG_FILENAME = "08_build_sentiment_features.log"
@@ -40,19 +29,16 @@ def setup_logger(config):
     logger.setLevel(getattr(logging, config.logging.level.upper(), logging.INFO))
     logger.handlers.clear()
     formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
-
     if config.logging.log_to_console:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
-
     if config.logging.log_to_file:
         log_dir = Path(config.logging.qa_log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(log_dir / LOG_FILENAME, encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-
     return logger
 
 
@@ -62,15 +48,12 @@ def get_sentiment_option(config, field_name, default_value):
 
 def get_stage_paths(config):
     outputs = getattr(config, "outputs", None)
-
     issue_output_path = getattr(outputs, "issue_sentiment_features_table", None)
     if not issue_output_path:
         issue_output_path = "./data/features/sentiment/issue_sentiment_features.parquet"
-
     comment_output_path = getattr(outputs, "comment_sentiment_features_table", None)
     if not comment_output_path:
         comment_output_path = "./data/features/sentiment/comment_sentiment_features.parquet"
-
     qa_summary_path = getattr(outputs, "sentiment_feature_qa_summary_csv", None)
     if not qa_summary_path:
         qa_summary_path = "./logs/qa/sentiment_feature_qa_summary.csv"
@@ -86,12 +69,10 @@ def get_stage_paths(config):
 def normalize_issue_set_columns(df):
     if df.empty:
         return pd.DataFrame(columns=["repo_full_name", "issue_id", "issue_number", "analysis_set"])
-
     normalized = df.copy()
     repo_col = find_first_present_column(normalized, ["repo_full_name", "repo_name", "full_name", "repo"])
     issue_id_col = find_first_present_column(normalized, ["issue_id", "id"])
     issue_number_col = find_first_present_column(normalized, ["issue_number", "number"])
-
     if repo_col is None:
         return pd.DataFrame(columns=["repo_full_name", "issue_id", "issue_number", "analysis_set"])
 
@@ -99,12 +80,10 @@ def normalize_issue_set_columns(df):
     out_df["repo_full_name"] = normalized[repo_col].astype(str)
     out_df["issue_id"] = normalized[issue_id_col].astype(str) if issue_id_col else None
     out_df["issue_number"] = pd.to_numeric(normalized[issue_number_col], errors="coerce") if issue_number_col else None
-
     if "analysis_set" in normalized.columns:
         out_df["analysis_set"] = normalized["analysis_set"].astype(str)
     else:
         out_df["analysis_set"] = None
-
     out_df = out_df.drop_duplicates().reset_index(drop=True)
     return out_df
 
@@ -121,7 +100,6 @@ def build_target_issue_lookup(config):
     merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
     wontfix_df = load_table(config.outputs.wontfix_issue_set_table, merge_mode=merge_mode)
     comparison_df = load_table(config.outputs.comparison_issue_set_table, merge_mode=merge_mode)
-
     wontfix_df = normalize_issue_set_columns(wontfix_df)
     comparison_df = normalize_issue_set_columns(comparison_df)
 
@@ -129,7 +107,6 @@ def build_target_issue_lookup(config):
         wontfix_df["analysis_set"] = "wontfix"
     if not comparison_df.empty:
         comparison_df["analysis_set"] = "comparison"
-
     combined = pd.concat([wontfix_df, comparison_df], ignore_index=True) if (not wontfix_df.empty or not comparison_df.empty) else pd.DataFrame(columns=["repo_full_name", "issue_id", "issue_number", "analysis_set"])
     if combined.empty:
         return {}
@@ -144,21 +121,17 @@ def build_target_issue_lookup(config):
         issue_id = clean_text(row.get("issue_id"))
         issue_number = row.get("issue_number")
         analysis_set = row.get("analysis_set")
-
         if issue_id:
             repo_payload["by_issue_id"][issue_id] = analysis_set
         if pd.notna(issue_number):
             repo_payload["by_issue_number"][int(issue_number)] = analysis_set
-
     return lookup
 
 
 def load_stage_inputs_for_repo(config, repo_full_name):
     merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
-
     issues_df = load_table(config.outputs.issues_resolved_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
     comments_df = load_table(config.outputs.issue_comments_resolved_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
-
     return {
         "issues_resolved": repo_filter(issues_df, repo_full_name),
         "issue_comments_resolved": repo_filter(comments_df, repo_full_name),
@@ -188,7 +161,6 @@ def new_repo_result(repo_full_name, repo_id=None):
 def attach_analysis_set(issues_df, repo_lookup):
     if issues_df.empty:
         return issues_df
-
     df = issues_df.copy()
     df["analysis_set"] = None
 
@@ -196,25 +168,21 @@ def attach_analysis_set(issues_df, repo_lookup):
         issue_id = clean_text(row.get("issue_id"))
         issue_number = row.get("issue_number")
         analysis_set = None
-
         if issue_id and issue_id in repo_lookup.get("by_issue_id", {}):
             analysis_set = repo_lookup["by_issue_id"].get(issue_id)
         elif pd.notna(issue_number):
             analysis_set = repo_lookup.get("by_issue_number", {}).get(int(issue_number))
-
         df.at[index, "analysis_set"] = analysis_set
 
     df = df[df["analysis_set"].notna()].copy()
     if df.empty:
         return df
-
     return df.reset_index(drop=True)
 
 
 def prepare_issue_frame(issues_df):
     if issues_df.empty:
         return issues_df
-
     df = issues_df.copy()
     needed_columns = [
         "repo_id",
@@ -268,15 +236,12 @@ def prepare_comment_frame(comments_df, target_issue_numbers):
 def build_comment_rows_for_issue(issue_row, issue_comments_df, analyzer):
     if issue_comments_df.empty:
         return []
-
     rows = []
     sorted_comments = issue_comments_df.sort_values(["created_at", "comment_id"], kind="stable", na_position="last").reset_index(drop=True)
-
     for sequence_index, comment_row in enumerate(sorted_comments.to_dict(orient="records"), start=1):
         score_payload = score_text_features(comment_row.get("body"), analyzer)
         author_key = clean_text(comment_row.get("comment_author_contributor_key")) or clean_text(comment_row.get("author_login"))
         compound = float(score_payload["sentiment_compound"])
-
         rows.append({
             "repo_id": issue_row.get("repo_id"),
             "repo_full_name": issue_row.get("repo_full_name"),
@@ -306,7 +271,6 @@ def build_comment_rows_for_issue(issue_row, issue_comments_df, analyzer):
             "is_negative_comment": 1 if compound < -0.05 else 0,
             "is_neutral_comment": 1 if -0.05 <= compound <= 0.05 else 0,
         })
-
     return rows
 
 
@@ -315,11 +279,9 @@ def build_issue_feature_row(issue_row, comment_rows, analyzer):
     body_scores = score_text_features(issue_row.get("body"), analyzer)
     combined_scores = score_text_features(
         "\n\n".join([value for value in [clean_text(issue_row.get("title")), clean_text(issue_row.get("body"))] if value]),
-        analyzer,
-    )
+        analyzer)
 
     issue_author_key = clean_text(issue_row.get("issue_author_contributor_key")) or clean_text(issue_row.get("author_login"))
-
     total_comments = len(comment_rows)
     comments_with_text = [row for row in comment_rows if row.get("has_text") == 1]
     comment_compounds = [row.get("sentiment_compound") for row in comments_with_text]
@@ -340,12 +302,10 @@ def build_issue_feature_row(issue_row, comment_rows, analyzer):
 
     issue_author_commented_flag = 1 if issue_author_key and issue_author_key in commenter_counts else 0
     num_non_author_commenters = len([key for key in commenter_counts if key != issue_author_key])
-
     missing_comment_text_count = sum(1 for row in comment_rows if row.get("has_text") != 1)
     positive_comment_count = sum(row.get("is_positive_comment", 0) for row in comment_rows)
     negative_comment_count = sum(row.get("is_negative_comment", 0) for row in comment_rows)
     neutral_comment_count = sum(row.get("is_neutral_comment", 0) for row in comment_rows)
-
     text_lengths = [row.get("text_length_chars") for row in comments_with_text]
     uppercase_ratios = [row.get("uppercase_ratio") for row in comments_with_text]
     question_counts = [row.get("question_mark_count") for row in comments_with_text]
@@ -411,7 +371,7 @@ def build_issue_feature_row(issue_row, comment_rows, analyzer):
     }
 
 
-def process_repo(config, logger, repo_row, target_issue_lookup, analyzer):
+def process_repo(config, logger, repo_row, target_issue_lookup, analyzer, repo_id_lookup):
     repo_full_name = repo_row["full_name"]
     repo_lookup = target_issue_lookup.get(repo_full_name)
     result = new_repo_result(repo_full_name, repo_row.get("repo_id"))
@@ -436,6 +396,7 @@ def process_repo(config, logger, repo_row, target_issue_lookup, analyzer):
 
     issues_df = attach_analysis_set(issues_df, repo_lookup)
     issues_df = prepare_issue_frame(issues_df)
+    issues_df["repo_id"] = issues_df["repo_full_name"].map(repo_id_lookup)
     if issues_df.empty:
         result["status"] = "completed"
         return result
@@ -519,12 +480,6 @@ def merge_sentiment_feature_batches(config, logger, stage_paths):
         logger.warning("No issue sentiment feature parts found to merge.")
 
 
-def write_summary_csv(summary_rows, output_path):
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(summary_rows).to_csv(output_path, index=False)
-
-
 def write_run_manifest(repo_rows, summary_rows, stage_paths, analyzer_backend):
     manifest_path = Path(stage_paths["run_manifest_path"])
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -541,6 +496,18 @@ def write_run_manifest(repo_rows, summary_rows, stage_paths, analyzer_backend):
     with manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
 
+def build_repo_id_lookup(config):
+    merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
+    repos_df = load_table(config.outputs.repositories_table, merge_mode=merge_mode)
+    if repos_df.empty:
+        return {}
+
+    return {
+        row["repo_full_name"]: row["repo_id"]
+        for row in repos_df.to_dict(orient="records")
+        if row.get("repo_full_name") and row.get("repo_id") is not None
+    }
+
 
 def main(config_path=None):
     config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
@@ -548,12 +515,12 @@ def main(config_path=None):
     ensure_project_directories(config)
     logger = setup_logger(config)
     stage_paths = get_stage_paths(config)
+    repo_id_lookup = build_repo_id_lookup(config)
 
     repo_rows = load_repo_list(config.outputs.repo_included_list)
     target_issue_lookup = build_target_issue_lookup(config)
     analyzer = SentimentAnalyzerWrapper()
     logger.info("Using sentiment backend: %s", analyzer.backend_name)
-
     batch_root = reset_batch_root(config, BATCH_FOLDER_NAME)
     logger.info("Reset batch root: %s", batch_root)
 
@@ -562,7 +529,6 @@ def main(config_path=None):
         repo_rows = repo_rows[:max_repos_per_run]
 
     summary_rows = []
-
     for repo_row in repo_rows:
         repo_full_name = repo_row["full_name"]
         should_skip, reason = should_skip_repo(
@@ -584,7 +550,7 @@ def main(config_path=None):
 
         logger.info("Processing repo %s", repo_full_name)
         try:
-            result = process_repo(config, logger, repo_row, target_issue_lookup, analyzer)
+            result = process_repo(config, logger, repo_row, target_issue_lookup, analyzer, repo_id_lookup)
         except Exception as exc:
             logger.exception("Failed while building sentiment features for %s", repo_full_name)
             result = new_repo_result(repo_full_name, repo_row.get("repo_id"))
@@ -598,7 +564,6 @@ def main(config_path=None):
     write_summary_csv(summary_rows, stage_paths["qa_summary_path"])
     write_run_manifest(repo_rows, summary_rows, stage_paths, analyzer.backend_name)
     logger.info("Sentiment feature building complete. Repos processed: %s", len(summary_rows))
-
 
 if __name__ == "__main__":
     main()

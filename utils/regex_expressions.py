@@ -68,3 +68,10 @@ LEADING_PUNCTUATION = "'\"`([{<"
 GITHUB_NOREPLY_EMAIL_PATTERN = re.compile(
     r"(?i)^(?:(?P<id>\d+)\+)?(?P<login>[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)@users\.noreply\.github\.com$"
 )
+
+# sentiment patterns
+TOKEN_PATTERN = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+URL_PATTERN = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>()\[\]{}\"']+")
+ALPHA_CHAR_PATTERN = re.compile(r"[A-Za-z]")
+UPPERCASE_CHAR_PATTERN = re.compile(r"[A-Z]")
+PATHISH_PATTERN_SENTIMENT = re.compile(r"(?P<path>(?:\.{0,2}/)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+(?:\.[A-Za-z0-9]{1,10})?)")

@@ -414,7 +414,6 @@ def merge_chunked_batches(config, logger, repository_rows=None):
 
 def write_summary_csv(summary_rows, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
     fieldnames = [
         "repo_full_name",
         "repo_id",

@@ -3,6 +3,7 @@ import gzip
 import json
 from pathlib import Path
 import pandas as pd
+import math
 from utils.checkpoints import sanitize_repo_name
 
 
@@ -291,9 +292,61 @@ def has_real_value(value):
     cleaned = clean_text(value)
     if cleaned is None:
         return False
-
     lowered = cleaned.lower()
     if lowered in {"nan", "none", "null", "nat", "<na>"}:
         return False
-
     return True
+
+def write_summary_csv(summary_rows, output_path):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(summary_rows).to_csv(output_path, index=False)
+
+def safe_to_datetime(value):
+    if value is None:
+        return pd.NaT
+    try:
+        return pd.to_datetime(value, errors="coerce", utc=True)
+    except Exception:
+        # preserve shape for common container inputs if conversion blows up
+        if isinstance(value, pd.Series):
+            return pd.Series(pd.NaT, index=value.index, dtype="datetime64[ns, UTC]")
+        try:
+            length = len(value)
+            return pd.Series([pd.NaT] * length, dtype="datetime64[ns, UTC]")
+        except Exception:
+            return pd.NaT
+
+def safe_divide(numerator, denominator, default_value=0.0):
+    if denominator in {0, 0.0, None}:
+        return default_value
+    try:
+        return float(numerator) / float(denominator)
+    except Exception:
+        return default_value
+
+def take_mean(values):
+    numeric_values = [float(value) for value in values if value is not None and not pd.isna(value)]
+    if not numeric_values:
+        return 0.0
+    return float(sum(numeric_values)) / float(len(numeric_values))
+
+
+def take_std(values):
+    numeric_values = [float(value) for value in values if value is not None and not pd.isna(value)]
+    if len(numeric_values) < 2:
+        return 0.0
+    mean_value = take_mean(numeric_values)
+    variance = sum((value - mean_value) ** 2 for value in numeric_values) / float(len(numeric_values) - 1)
+    return math.sqrt(max(variance, 0.0))
+
+
+def take_median(values):
+    numeric_values = sorted(float(value) for value in values if value is not None and not pd.isna(value))
+    if not numeric_values:
+        return 0.0
+    count = len(numeric_values)
+    midpoint = count // 2
+    if count % 2 == 1:
+        return numeric_values[midpoint]
+    return (numeric_values[midpoint - 1] + numeric_values[midpoint]) / 2.0

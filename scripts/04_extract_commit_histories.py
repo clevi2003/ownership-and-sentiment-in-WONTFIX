@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from config.study_config_loader import ensure_project_directories, load_study_config
 from utils.github_api import build_session, fetch_repository_metadata, get_github_headers
-from utils.io_helpers import load_repo_list, write_processed_table, append_jsonl_row, reset_output_file
+from utils.io_helpers import load_repo_list, write_processed_table, append_jsonl_row, reset_output_file, write_summary_csv
 from utils.checkpoints import get_batch_root, get_repo_output_root, reset_batch_root, should_skip_repo, write_repo_checkpoint, sanitize_repo_name
 from utils.chunk_writers import CommitHistoryRepoChunkWriter
 
@@ -54,17 +54,6 @@ def setup_logger(config):
         logger.addHandler(file_handler)
 
     return logger
-
-
-# def get_issue_extraction_option(config, field_name, default_value):
-#     if not hasattr(config, "issue_extraction"):
-#         return default_value
-#     if not hasattr(config.issue_extraction, field_name):
-#         return default_value
-#     value = getattr(config.issue_extraction, field_name)
-#     if value is None:
-#         return default_value
-#     return value
 
 def get_git_runtime_option(config, field_name, default_value):
     if not hasattr(config, "git_history_extraction"):
@@ -589,12 +578,6 @@ def write_merged_or_partitioned_output(*, repo_part_map, output_path, config, so
 
     write_processed_table(merged_df, Path(output_path), config)
     return "single_parquet"
-
-
-def write_summary_csv(summary_rows, output_path):
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(summary_rows).to_csv(output_path, index=False)
 
 
 def write_run_manifest(config, repo_rows, summary_rows):

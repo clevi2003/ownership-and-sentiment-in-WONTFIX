@@ -1,9 +1,12 @@
 import math
-from nltk.sentiment import SentimentIntensityAnalyzer
+import nltk
 from utils.regex_expressions import TOKEN_PATTERN, PATHISH_PATTERN_SENTIMENT, URL_PATTERN, ALPHA_CHAR_PATTERN, UPPERCASE_CHAR_PATTERN
-from vadersentiment.vaderSentiment import SentimentIntensityAnalyzer
 import pandas as pd
 from utils.io_helpers import clean_text
+try:
+    from vadersentiment.vaderSentiment import SentimentIntensityAnalyzer as VaderSentimentAnalyzer
+except ImportError:
+    VaderSentimentAnalyzer = None
 
 
 class FallbackLexiconSentimentAnalyzer:
@@ -65,26 +68,23 @@ class SentimentAnalyzerWrapper:
     def __init__(self):
         self.backend_name = None
         self._analyzer = self._build_analyzer()
-
     def _build_analyzer(self):
         try:
             try:
-                analyzer = SentimentIntensityAnalyzer()
+                analyzer = nltkSentiment()
             except LookupError:
-                import nltk
                 nltk.download("vader_lexicon", quiet=True)
-                analyzer = SentimentIntensityAnalyzer()
+                analyzer = nltkSentiment()
             self.backend_name = "nltk_vader"
             return analyzer
         except Exception:
             pass
-
-        try:
-            self.backend_name = "vaderSentiment"
-            return SentimentIntensityAnalyzer()
-        except Exception:
-            pass
-
+        if VaderSentimentAnalyzer is not None:
+            try:
+                self.backend_name = "vaderSentiment"
+                return VaderSentimentAnalyzer()
+            except Exception:
+                pass
         self.backend_name = "fallback_lexicon"
         return FallbackLexiconSentimentAnalyzer()
 
@@ -136,15 +136,6 @@ def score_text_features(text, analyzer):
     }
 
 
-def safe_divide(numerator, denominator, default_value=0.0):
-    if denominator in {0, 0.0, None}:
-        return default_value
-    try:
-        return float(numerator) / float(denominator)
-    except Exception:
-        return default_value
-
-
 def compute_series_slope(values):
     numeric_values = [float(value) for value in values if value is not None and not pd.isna(value)]
     if len(numeric_values) < 2:
@@ -165,33 +156,6 @@ def compute_series_slope(values):
     if denominator <= 0.0:
         return 0.0
     return numerator / denominator
-
-
-def take_mean(values):
-    numeric_values = [float(value) for value in values if value is not None and not pd.isna(value)]
-    if not numeric_values:
-        return 0.0
-    return float(sum(numeric_values)) / float(len(numeric_values))
-
-
-def take_std(values):
-    numeric_values = [float(value) for value in values if value is not None and not pd.isna(value)]
-    if len(numeric_values) < 2:
-        return 0.0
-    mean_value = take_mean(numeric_values)
-    variance = sum((value - mean_value) ** 2 for value in numeric_values) / float(len(numeric_values) - 1)
-    return math.sqrt(max(variance, 0.0))
-
-
-def take_median(values):
-    numeric_values = sorted(float(value) for value in values if value is not None and not pd.isna(value))
-    if not numeric_values:
-        return 0.0
-    count = len(numeric_values)
-    midpoint = count // 2
-    if count % 2 == 1:
-        return numeric_values[midpoint]
-    return (numeric_values[midpoint - 1] + numeric_values[midpoint]) / 2.0
 
 
 def split_early_late(values):
