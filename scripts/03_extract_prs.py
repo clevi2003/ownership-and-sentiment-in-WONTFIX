@@ -226,8 +226,19 @@ def extract_pr_numbers_from_timeline_event(event):
 
 def fetch_pull_request_detail(session, headers, config, logger, repo_full_name, pr_number):
     url = f"{config.github.api_base_url}/repos/{repo_full_name}/pulls/{pr_number}"
-    response = make_request(session, url, headers, None, config, logger)
-    return response.json()
+    try:
+        response = make_request(session, url, headers, None, config, logger)
+        return response.json()
+    except requests.exceptions.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code == 404:
+            logger.warning(
+                "Skipping PR detail fetch due to 404 | repo=%s | pr=%s",
+                repo_full_name,
+                pr_number,
+            )
+            return None
+        raise
 
 
 def fetch_pull_request_commits(session, headers, config, logger, repo_full_name, pr_number):
@@ -563,6 +574,8 @@ def process_repo(session, headers, config, logger, repo_row, issues_df):
         result["pr_detail_requests"] += 1
 
         pr_payload = fetch_pull_request_detail(session, headers, config, logger, repo_full_name, pr_number)
+        if not pr_payload:
+            continue 
         result["raw_files_written"] += save_json(
             pr_payload,
             raw_root / "pr_details" / f"pr_{pr_number:06d}.json",
