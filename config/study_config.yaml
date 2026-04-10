@@ -191,7 +191,7 @@ issue_extraction:
   enabled: true
   max_issue_pages_per_repo_per_state: 50
   max_comment_pages_per_issue: 3
-  max_repos_per_run: 1
+  max_repos_per_run: 50
   resume_mode: "fresh" # checkpoint_only, raw_or_checkpoint, or fresh
   write_repo_manifest: true
   fail_on_missing_repo_id: true
@@ -225,7 +225,7 @@ git_history_extraction:
   fast_mode_date_window: "participation_analysis" # issue_collection | participation_analysis | explicit_history_dates
   commit_message_mode: "subject_only" # full | subject_only | none
   max_commit_message_chars: 300
-  max_repos_per_run: 1
+  max_repos_per_run: 50
   resume_mode: "fresh" # checkpoint_only | raw_or_checkpoint | fresh
   write_batch_size: 1000
   request_pause_seconds_between_repos: 0
@@ -289,7 +289,7 @@ linkage:
       - "RQ2 should prob use only issues with high and maybe medium confidence issue-file linkage."
 issue_file_linking:
   enabled: true
-  max_repos_per_run: 1
+  max_repos_per_run: 50
   resume_mode: "fresh" # fresh | checkpoint_only | raw_or_checkpoint
   write_batch_size: 1000
   include_comment_text_fallback: true
@@ -305,7 +305,7 @@ identity_resolution:
     - "github_login_exact"
     - "email_exact"
     - "normalized_name_exact"
-  max_repos_per_run: 1
+  max_repos_per_run: 50
   resume_mode: "fresh" # fresh | checkpoint_only | raw_or_checkpoint
   write_batch_size: 1000
   write_cluster_summary: true

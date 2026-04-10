@@ -9,6 +9,8 @@ data/processed/
 data/linked/
 data/features/
 data/final/
+outputs/sentiment_analysis/figures
+outputs/sentiment_analysis/tables
 
 # Top-level project output folders, if used
 processed/
