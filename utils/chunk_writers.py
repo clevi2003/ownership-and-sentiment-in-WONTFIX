@@ -293,3 +293,36 @@ class OwnershipFeatureRepoChunkWriter:
     def finalize(self):
         self._flush_issue_rows()
         self._flush_evidence_rows()
+
+class ParticipationFeatureRepoChunkWriter:
+    def __init__(self, config, repo_dir, batch_size=5000):
+        self.config = config
+        self.repo_dir = Path(repo_dir)
+        self.repo_dir.mkdir(parents=True, exist_ok=True)
+        self.batch_size = max(int(batch_size or 1), 1)
+
+        self._issue_rows = []
+        self._issue_part_index = 1
+
+    def add_issue_participation_row(self, row):
+        if row is None:
+            return
+        self._issue_rows.append(dict(row))
+        if len(self._issue_rows) >= self.batch_size:
+            self._flush_issue_rows()
+
+    def finalize(self):
+        self._flush_issue_rows()
+
+    def _flush_issue_rows(self):
+        if not self._issue_rows:
+            return
+        df = pd.DataFrame(self._issue_rows)
+        output_path = self.repo_dir / f"issue_participation_features_part_{self._issue_part_index:05d}.parquet"
+        df.to_parquet(
+            output_path,
+            index=False,
+            compression=self.config.storage.compression.parquet_compression,
+        )
+        self._issue_rows = []
+        self._issue_part_index += 1

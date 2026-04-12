@@ -726,7 +726,7 @@ def build_issue_feature_row(issue_row, issue_file_payload, evidence_rows, contri
         "ownership_discussion_overlap_count": int(len(overlap_keys)),
         "ownership_discussion_overlap_fraction": None,
         "discussion_ownership_overlap_fraction": None,
-        "owner_comment_presence_flag": 1 if len(overlap_keys) > 0 else 0,
+        "owner_comment_presence_flag": None,
         "top_owner_commented_flag": None,
         "owner_comment_share": None,
         "top_owner_comment_share": None,
@@ -734,7 +734,7 @@ def build_issue_feature_row(issue_row, issue_file_payload, evidence_rows, contri
 
     if coverage_flag in {"no_file_links", "no_commit_matches", "no_resolved_commit_authors", "missing_issue_created_at"}:
         return row
-
+    row["owner_comment_presence_flag"] = 1 if len(overlap_keys) > 0 else 0
     row["ownership_top_contributor_share_churn"] = sorted_churn[0] if sorted_churn else None
     row["ownership_top_contributor_share_commit"] = sorted_commit[0] if sorted_commit else None
     row["ownership_entropy_churn"] = shannon_entropy(shares_churn)
