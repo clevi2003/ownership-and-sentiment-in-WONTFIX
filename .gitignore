@@ -11,6 +11,7 @@ data/features/
 data/final/
 outputs/sentiment_analysis/figures
 outputs/sentiment_analysis/tables
+outputs/
 
 # Top-level project output folders, if used
 processed/
