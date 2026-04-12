@@ -435,6 +435,19 @@ class OutputsConfig:
     issue_comments_resolved_table: str
     pull_requests_resolved_table: str
     commits_resolved_table: str
+    issue_sentiment_features_table: str
+    comment_sentiment_features_table: str
+    sentiment_feature_qa_summary_csv: str
+    issue_ownership_features_table: str
+    issue_file_ownership_evidence_table: str
+    ownership_feature_qa_summary_csv: str
+    issue_participation_features_table: str
+    participation_feature_qa_summary_csv: str
+    analysis_dataset_full_issue_level_table: str
+    analysis_dataset_rq1_table: str
+    analysis_dataset_rq2_table: str
+    analysis_dataset_rq3_issue_level_base_table: str
+    analysis_dataset_qa_summary_csv: str
     extraction_summary_csv: str
     run_manifest_json: str
     resolved_config_snapshot_yaml: str
@@ -484,6 +497,14 @@ class RqScopingConfig:
     rq3: RqScopeItemConfig
 
 @dataclass
+class AnalysisDatasetConfig:
+    enabled: bool = True
+    ownership_usable_flags_include_sparse: bool = True
+    require_sentiment_for_rq1: bool = True
+    require_participation_for_rq1: bool = False
+    filter_rq2_to_ownership_usable: bool = False
+
+@dataclass
 class StudyConfig:
     study: StudyConfigSection
     paths: PathsConfig
@@ -507,6 +528,7 @@ class StudyConfig:
     logging: LoggingConfig
     quality_assurance: QualityAssuranceConfig
     rq_scoping: RqScopingConfig
+    analysis_dataset: AnalysisDatasetConfig
 
 def _parse_study(data):
     section = "study"
@@ -1004,6 +1026,23 @@ def _parse_outputs(raw_outputs):
         pull_requests_resolved_table=raw_outputs.get("pull_requests_resolved_table", "./data/linked/resolved_entities/pull_requests_resolved.parquet"),
         commits_resolved_table=raw_outputs.get("commits_resolved_table", "./data/linked/resolved_entities/commits_resolved.parquet"),
 
+        issue_sentiment_features_table=raw_outputs.get("issue_sentiment_features_table", "./data/features/sentiment/issue_sentiment_features.parquet"),
+        comment_sentiment_features_table=raw_outputs.get("comment_sentiment_features_table", "./data/features/sentiment/comment_sentiment_features.parquet"),
+        sentiment_feature_qa_summary_csv=raw_outputs.get("sentiment_feature_qa_summary_csv", "./logs/qa/sentiment_feature_qa_summary.csv"),
+
+        issue_ownership_features_table=raw_outputs.get("issue_ownership_features_table", "./data/features/ownership/issue_ownership_features.parquet"),
+        issue_file_ownership_evidence_table=raw_outputs.get("issue_file_ownership_evidence_table", "./data/features/ownership/issue_file_ownership_evidence.parquet"),
+        ownership_feature_qa_summary_csv=raw_outputs.get("ownership_feature_qa_summary_csv", "./logs/qa/issue_ownership_feature_qa_summary.csv"),
+
+        issue_participation_features_table=raw_outputs.get("issue_participation_features_table", "./data/features/participation/issue_participation_features.parquet"),
+        participation_feature_qa_summary_csv=raw_outputs.get("participation_feature_qa_summary_csv", "./logs/qa/issue_participation_feature_qa_summary.csv"),
+
+        analysis_dataset_full_issue_level_table=raw_outputs.get("analysis_dataset_full_issue_level_table", "./data/final/analysis_dataset_full_issue_level.parquet"),
+        analysis_dataset_rq1_table=raw_outputs.get("analysis_dataset_rq1_table", "./data/final/analysis_dataset_rq1.parquet"),
+        analysis_dataset_rq2_table=raw_outputs.get("analysis_dataset_rq2_table", "./data/final/analysis_dataset_rq2.parquet"),
+        analysis_dataset_rq3_issue_level_base_table=raw_outputs.get("analysis_dataset_rq3_issue_level_base_table", "./data/final/analysis_dataset_rq3_issue_level_base.parquet"),
+        analysis_dataset_qa_summary_csv=raw_outputs.get("analysis_dataset_qa_summary_csv", "./logs/qa/analysis_dataset_qa_summary.csv"),
+
         extraction_summary_csv=raw_outputs.get("extraction_summary_csv", "./logs/extraction/issues_comments_extraction_summary.csv"),
         run_manifest_json=raw_outputs.get("run_manifest_json", "./logs/extraction/issues_comments_run_manifest.json"),
         resolved_config_snapshot_yaml=raw_outputs.get("resolved_config_snapshot_yaml", "./logs/extraction/resolved_study_config.yaml"),
@@ -1066,6 +1105,17 @@ def _parse_rq_scoping(data):
         rq3=_parse_rq_scope_item(_require_dict(_get_required(d, "rq3", section), "rq_scoping.rq3")),
     )
 
+def _parse_analysis_dataset(data):
+    section = "analysis_dataset"
+    d = _require_dict(_get_optional(data, "analysis_dataset", {}), section)
+    return AnalysisDatasetConfig(
+        enabled=_get_optional(d, "enabled", True),
+        ownership_usable_flags_include_sparse=_get_optional(d, "ownership_usable_flags_include_sparse", True),
+        require_sentiment_for_rq1=_get_optional(d, "require_sentiment_for_rq1", True),
+        require_participation_for_rq1=_get_optional(d, "require_participation_for_rq1", False),
+        filter_rq2_to_ownership_usable=_get_optional(d, "filter_rq2_to_ownership_usable", False),
+    )
+
 def load_study_config(config_path):
     config_path = Path(config_path)
 
@@ -1103,6 +1153,7 @@ def load_study_config(config_path):
         logging=_parse_logging(raw_data),
         quality_assurance=_parse_quality_assurance(raw_data),
         rq_scoping=_parse_rq_scoping(raw_data),
+        analysis_dataset=_parse_analysis_dataset(raw_data)
     )
     validate_study_config(config)
     config = resolve_config_paths(config)
@@ -1270,7 +1321,19 @@ def resolve_config_paths(config):
     resolved.outputs.issue_comments_resolved_table = _resolve_path(base, resolved.outputs.issue_comments_resolved_table)
     resolved.outputs.pull_requests_resolved_table = _resolve_path(base, resolved.outputs.pull_requests_resolved_table)
     resolved.outputs.commits_resolved_table = _resolve_path(base, resolved.outputs.commits_resolved_table)
-
+    resolved.outputs.issue_sentiment_features_table = _resolve_path(base, resolved.outputs.issue_sentiment_features_table)
+    resolved.outputs.comment_sentiment_features_table = _resolve_path(base, resolved.outputs.comment_sentiment_features_table)
+    resolved.outputs.sentiment_feature_qa_summary_csv = _resolve_path(base, resolved.outputs.sentiment_feature_qa_summary_csv)
+    resolved.outputs.issue_ownership_features_table = _resolve_path(base, resolved.outputs.issue_ownership_features_table)
+    resolved.outputs.issue_file_ownership_evidence_table = _resolve_path(base, resolved.outputs.issue_file_ownership_evidence_table)
+    resolved.outputs.ownership_feature_qa_summary_csv = _resolve_path(base, resolved.outputs.ownership_feature_qa_summary_csv)
+    resolved.outputs.issue_participation_features_table = _resolve_path(base, resolved.outputs.issue_participation_features_table)
+    resolved.outputs.participation_feature_qa_summary_csv = _resolve_path(base, resolved.outputs.participation_feature_qa_summary_csv)
+    resolved.outputs.analysis_dataset_full_issue_level_table = _resolve_path(base, resolved.outputs.analysis_dataset_full_issue_level_table)
+    resolved.outputs.analysis_dataset_rq1_table = _resolve_path(base, resolved.outputs.analysis_dataset_rq1_table)
+    resolved.outputs.analysis_dataset_rq2_table = _resolve_path(base, resolved.outputs.analysis_dataset_rq2_table)
+    resolved.outputs.analysis_dataset_rq3_issue_level_base_table = _resolve_path(base, resolved.outputs.analysis_dataset_rq3_issue_level_base_table)
+    resolved.outputs.analysis_dataset_qa_summary_csv = _resolve_path(base, resolved.outputs.analysis_dataset_qa_summary_csv)
     resolved.checkpointing.checkpoint_dir = _resolve_path(base, resolved.checkpointing.checkpoint_dir)
     resolved.logging.extraction_log_dir = _resolve_path(base, resolved.logging.extraction_log_dir)
     resolved.logging.normalization_log_dir = _resolve_path(base, resolved.logging.normalization_log_dir)

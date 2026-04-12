@@ -375,6 +375,19 @@ outputs:
   issue_comments_resolved_table: "./data/linked/resolved_entities/issue_comments_resolved.parquet"
   pull_requests_resolved_table: "./data/linked/resolved_entities/pull_requests_resolved.parquet"
   commits_resolved_table: "./data/linked/resolved_entities/commits_resolved.parquet"
+  issue_sentiment_features_table: "./data/features/sentiment/issue_sentiment_features.parquet"
+  comment_sentiment_features_table: "./data/features/sentiment/comment_sentiment_features.parquet"
+  sentiment_feature_qa_summary_csv: "./logs/qa/sentiment_feature_qa_summary.csv"
+  issue_ownership_features_table: "./data/features/ownership/issue_ownership_features.parquet"
+  issue_file_ownership_evidence_table: "./data/features/ownership/issue_file_ownership_evidence.parquet"
+  ownership_feature_qa_summary_csv: "./logs/qa/issue_ownership_feature_qa_summary.csv"
+  issue_participation_features_table: "./data/features/participation/issue_participation_features.parquet"
+  participation_feature_qa_summary_csv: "./logs/qa/issue_participation_feature_qa_summary.csv"
+  analysis_dataset_full_issue_level_table: "./data/final/analysis_dataset_full_issue_level.parquet"
+  analysis_dataset_rq1_table: "./data/final/analysis_dataset_rq1.parquet"
+  analysis_dataset_rq2_table: "./data/final/analysis_dataset_rq2.parquet"
+  analysis_dataset_rq3_issue_level_base_table: "./data/final/analysis_dataset_rq3_issue_level_base.parquet"
+  analysis_dataset_qa_summary_csv: "./logs/qa/analysis_dataset_qa_summary.csv"
 
 checkpointing:
   enabled: true
@@ -423,3 +436,10 @@ rq_scoping:
   rq3:
     requires_repo_activity_timeseries: true
     allows_missing_issue_file_links: true
+
+analysis_dataset:
+  enabled: true
+  ownership_usable_flags_include_sparse: true
+  require_sentiment_for_rq1: true
+  require_participation_for_rq1: false
+  filter_rq2_to_ownership_usable: false
