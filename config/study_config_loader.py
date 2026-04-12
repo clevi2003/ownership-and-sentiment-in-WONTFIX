@@ -381,6 +381,10 @@ class IdentityResolutionConfig:
     aggressive_fuzzy_merge: bool
     keep_unresolved_identities: bool
     store_identity_confidence: bool
+    enable_pr_commit_login_email_bridge: bool
+    pr_commit_bridge_min_pair_evidence: int
+    pr_commit_bridge_min_distinct_prs: int
+    pr_commit_bridge_require_bijective: bool
 
 @dataclass
 class BotHandlingConfig:
@@ -934,6 +938,10 @@ def _parse_identity_resolution(data):
         aggressive_fuzzy_merge=_get_required(d, "aggressive_fuzzy_merge", section),
         keep_unresolved_identities=_get_required(d, "keep_unresolved_identities", section),
         store_identity_confidence=_get_required(d, "store_identity_confidence", section),
+        enable_pr_commit_login_email_bridge=_get_optional(d, "enable_pr_commit_login_email_bridge", True),
+        pr_commit_bridge_min_pair_evidence=_get_optional(d, "pr_commit_bridge_min_pair_evidence", 2),
+        pr_commit_bridge_min_distinct_prs=_get_optional(d, "pr_commit_bridge_min_distinct_prs", 1),
+        pr_commit_bridge_require_bijective=_get_optional(d, "pr_commit_bridge_require_bijective", True),
     )
 
 def _parse_bot_handling(data):

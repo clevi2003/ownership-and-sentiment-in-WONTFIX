@@ -17,8 +17,8 @@ from utils.io_helpers import collect_repo_part_files, load_repo_list, load_table
 from utils.regex_expressions import GITHUB_NOREPLY_EMAIL_PATTERN
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
-LOG_FILENAME = "06_build_identity_map.log"
-CHECKPOINT_PREFIX = "06_build_identity_map"
+LOG_FILENAME = "07_build_identity_map.log"
+CHECKPOINT_PREFIX = "07_build_identity_map"
 BATCH_FOLDER_NAME = "identity_resolution"
 RAW_FOLDER_NAME = "identity_resolution"
 
@@ -195,8 +195,10 @@ def new_repo_result(repo_full_name, repo_id=None):
         "resolved_by_noreply_login_bridge": 0,
         "pr_login_email_bridge_pairs": 0,
         "resolved_by_pr_login_email_bridge": 0,
+        "pr_login_email_bridge_pair_candidates": 0,
+        "pr_login_email_bridge_pairs_retained": 0,
+        "pr_login_email_bridge_min_evidence_required": 0,
     }
-
 
 def build_candidate_row(repo_id, repo_full_name, raw_source_type, raw_login=None, raw_name=None, raw_email=None):
     return {
@@ -304,24 +306,63 @@ def build_commit_email_by_sha_map(commits_df, config):
     return dict(zip(commit_slice["commit_sha"], commit_slice["normalized_email"]))
 
 
+def get_identity_bridge_option(config, field_name, default_value):
+    identity_cfg = getattr(config, "identity_resolution", None)
+    if identity_cfg is None:
+        return default_value
+    if not hasattr(identity_cfg, field_name):
+        return default_value
+    value = getattr(identity_cfg, field_name)
+    if value is None:
+        return default_value
+    return value
+
+
+def safe_int(value, default_value):
+    try:
+        if value is None:
+            return default_value
+        return int(value)
+    except (TypeError, ValueError):
+        return default_value
+
 def build_pr_login_email_bridge(prs_df, pr_commit_links_df, commits_df, config):
+    empty_payload = {
+        "login_to_email": {},
+        "email_to_login": {},
+        "evidence_counts": {},
+        "evidence_pr_counts": {},
+        "evidence_commit_counts": {},
+    }
+    if not bool(get_identity_bridge_option(config, "enable_pr_commit_login_email_bridge", True)):
+        return empty_payload
     if prs_df is None or prs_df.empty:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
+        return empty_payload
     if pr_commit_links_df is None or pr_commit_links_df.empty:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
+        return empty_payload
     if commits_df is None or commits_df.empty:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
-
+        return empty_payload
     if "author_login" not in prs_df.columns:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
+        return empty_payload
     if "commit_sha" not in pr_commit_links_df.columns:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
+        return empty_payload
     if not ({"pr_id", "pr_number"} & set(pr_commit_links_df.columns)):
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
-
+        return empty_payload
     commit_email_by_sha = build_commit_email_by_sha_map(commits_df, config)
     if not commit_email_by_sha:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
+        return empty_payload
+
+    min_pair_evidence = safe_int(
+        get_identity_bridge_option(config, "pr_commit_bridge_min_pair_evidence", 2),
+        2,
+    )
+    min_distinct_prs = safe_int(
+        get_identity_bridge_option(config, "pr_commit_bridge_min_distinct_prs", 1),
+        1,
+    )
+    require_bijective = bool(
+        get_identity_bridge_option(config, "pr_commit_bridge_require_bijective", True)
+    )
 
     pr_cols = [col for col in ["pr_id", "pr_number", "author_login"] if col in prs_df.columns]
     pr_slice = prs_df[pr_cols].copy()
@@ -335,7 +376,7 @@ def build_pr_login_email_bridge(prs_df, pr_commit_links_df, commits_df, config):
     pr_slice = pr_slice[pr_slice["normalized_login"].notna()].copy()
 
     if pr_slice.empty:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
+        return empty_payload
 
     pr_commit_cols = [col for col in ["pr_id", "pr_number", "commit_sha"] if col in pr_commit_links_df.columns]
     pr_commit_slice = pr_commit_links_df[pr_commit_cols].copy()
@@ -347,7 +388,7 @@ def build_pr_login_email_bridge(prs_df, pr_commit_links_df, commits_df, config):
 
     link_rows = []
 
-    # use pr_id when present but can try pr_number if that doesn't work
+    # prefer pr_id joins when possible
     if "pr_id" in pr_slice.columns and "pr_id" in pr_commit_slice.columns:
         pr_id_slice = pr_slice[pr_slice["pr_id"].notna()][["pr_id", "normalized_login"]].drop_duplicates()
         pr_commit_id_slice = pr_commit_slice[pr_commit_slice["pr_id"].notna()][["pr_id", "commit_sha"]].drop_duplicates()
@@ -355,8 +396,11 @@ def build_pr_login_email_bridge(prs_df, pr_commit_links_df, commits_df, config):
         if not pr_id_slice.empty and not pr_commit_id_slice.empty:
             merged_by_id = pr_id_slice.merge(pr_commit_id_slice, on="pr_id", how="inner")
             if not merged_by_id.empty:
-                link_rows.append(merged_by_id[["normalized_login", "commit_sha"]])
+                merged_by_id["bridge_join_source"] = "pr_id"
+                merged_by_id["bridge_pr_key"] = merged_by_id["pr_id"].apply(lambda value: f"pr_id:{int(value)}")
+                link_rows.append(merged_by_id[["normalized_login", "commit_sha", "bridge_join_source", "bridge_pr_key"]])
 
+    # fall back to pr_number only if needed
     if "pr_number" in pr_slice.columns and "pr_number" in pr_commit_slice.columns:
         pr_num_slice = pr_slice[pr_slice["pr_number"].notna()][["pr_number", "normalized_login"]].drop_duplicates()
         pr_commit_num_slice = pr_commit_slice[pr_commit_slice["pr_number"].notna()][["pr_number", "commit_sha"]].drop_duplicates()
@@ -364,40 +408,89 @@ def build_pr_login_email_bridge(prs_df, pr_commit_links_df, commits_df, config):
         if not pr_num_slice.empty and not pr_commit_num_slice.empty:
             merged_by_num = pr_num_slice.merge(pr_commit_num_slice, on="pr_number", how="inner")
             if not merged_by_num.empty:
-                link_rows.append(merged_by_num[["normalized_login", "commit_sha"]])
+                merged_by_num["bridge_join_source"] = "pr_number"
+                merged_by_num["bridge_pr_key"] = merged_by_num["pr_number"].apply(lambda value: f"pr_number:{int(value)}")
+                link_rows.append(merged_by_num[["normalized_login", "commit_sha", "bridge_join_source", "bridge_pr_key"]])
 
     if not link_rows:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
+        return empty_payload
 
     bridge_df = pd.concat(link_rows, ignore_index=True).drop_duplicates()
     if bridge_df.empty:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
+        return empty_payload
 
     bridge_df["normalized_email"] = bridge_df["commit_sha"].map(commit_email_by_sha)
-    bridge_df = bridge_df[bridge_df["normalized_login"].notna() & bridge_df["normalized_email"].notna()].copy()
+    bridge_df = bridge_df[
+        bridge_df["normalized_login"].notna()
+        & bridge_df["normalized_email"].notna()
+        & bridge_df["commit_sha"].notna()
+    ].copy()
 
     if bridge_df.empty:
-        return {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {}}
+        return empty_payload
 
-    evidence_counts = (bridge_df.groupby(["normalized_login", "normalized_email"]).size().to_dict())
+    # dedup repeated observations of the same login/email/commit/PR tuple
+    bridge_df = bridge_df.drop_duplicates(
+        subset=["normalized_login", "normalized_email", "commit_sha", "bridge_pr_key"]
+    ).reset_index(drop=True)
 
-    login_to_emails = (bridge_df.groupby("normalized_login")["normalized_email"]
-                       .apply(lambda series: sorted(set(series.dropna().tolist()))).to_dict())
+    pair_summary = (
+        bridge_df.groupby(["normalized_login", "normalized_email"], dropna=False)
+        .agg(
+            evidence_count=("commit_sha", "size"),
+            distinct_commit_count=("commit_sha", "nunique"),
+            distinct_pr_count=("bridge_pr_key", "nunique"),
+        )
+        .reset_index()
+    )
 
-    email_to_logins = (bridge_df.groupby("normalized_email")["normalized_login"]
-                       .apply(lambda series: sorted(set(series.dropna().tolist()))).to_dict())
+    if pair_summary.empty:
+        return empty_payload
+
+    # conservative evidence thresholding
+    pair_summary = pair_summary[
+        (pair_summary["evidence_count"] >= min_pair_evidence)
+        & (pair_summary["distinct_pr_count"] >= min_distinct_prs)
+    ].copy()
+
+    if pair_summary.empty:
+        return empty_payload
+
+    evidence_counts = {
+        (row["normalized_login"], row["normalized_email"]): int(row["evidence_count"])
+        for _, row in pair_summary.iterrows()
+    }
+    evidence_pr_counts = {
+        (row["normalized_login"], row["normalized_email"]): int(row["distinct_pr_count"])
+        for _, row in pair_summary.iterrows()
+    }
+    evidence_commit_counts = {
+        (row["normalized_login"], row["normalized_email"]): int(row["distinct_commit_count"])
+        for _, row in pair_summary.iterrows()
+    }
+
+    login_to_emails = (pair_summary.groupby("normalized_login")["normalized_email"]
+                       .apply(lambda series: sorted(set(series.dropna().tolist())))
+                       .to_dict())
+
+    email_to_logins = (pair_summary.groupby("normalized_email")["normalized_login"]
+                       .apply(lambda series: sorted(set(series.dropna().tolist())))
+                       .to_dict())
 
     conservative_login_to_email = {}
     conservative_email_to_login = {}
     for login_value, emails in login_to_emails.items():
         if len(emails) != 1:
             continue
+
         email_value = emails[0]
-        reverse_logins = email_to_logins.get(email_value, [])
-        if len(reverse_logins) != 1:
-            continue
-        if reverse_logins[0] != login_value:
-            continue
+        if require_bijective:
+            reverse_logins = email_to_logins.get(email_value, [])
+            if len(reverse_logins) != 1:
+                continue
+            if reverse_logins[0] != login_value:
+                continue
+
         conservative_login_to_email[login_value] = email_value
         conservative_email_to_login[email_value] = login_value
 
@@ -405,8 +498,9 @@ def build_pr_login_email_bridge(prs_df, pr_commit_links_df, commits_df, config):
         "login_to_email": conservative_login_to_email,
         "email_to_login": conservative_email_to_login,
         "evidence_counts": evidence_counts,
+        "evidence_pr_counts": evidence_pr_counts,
+        "evidence_commit_counts": evidence_commit_counts,
     }
-
 
 def assign_contributor_keys(df, repo_id, config):
     if df.empty:
@@ -479,15 +573,115 @@ def resolve_identities(candidates_df, repo_id, config, result, stage_inputs=None
     df["normalized_login_candidate"] = df.apply(lambda row: choose_login_candidate(row.get("raw_login"), row.get("raw_email")), axis=1)
     df["normalized_login_alias_name"] = df["normalized_login_candidate"].apply(normalize_login_alias_for_name)
     result["name_alias_candidates_available"] = int(df["normalized_login_alias_name"].notna().sum())
-    bridge_payload = {"login_to_email": {}, "email_to_login": {}, "evidence_counts": {},}
+    bridge_payload = {
+        "login_to_email": {},
+        "email_to_login": {},
+        "evidence_counts": {},
+        "evidence_pr_counts": {},
+        "evidence_commit_counts": {},
+    }
 
     if stage_inputs is not None:
-        bridge_payload = build_pr_login_email_bridge(stage_inputs.get("pull_requests"),
-                                                     stage_inputs.get("pr_commit_links"),
-                                                     stage_inputs.get("commits"),
-                                                     config)
-    result["pr_login_email_bridge_pairs"] = int(len(bridge_payload["login_to_email"]))
+        if stage_inputs is not None:
+            prs_df = stage_inputs.get("pull_requests")
+            pr_commit_links_df = stage_inputs.get("pr_commit_links")
+            commits_df = stage_inputs.get("commits")
+
+            print("\n=== BRIDGE DEBUG START ===")
+
+            if prs_df is None:
+                print("pull_requests: None")
+            else:
+                print("pull_requests rows:", len(prs_df))
+                print("pull_requests columns:", prs_df.columns.tolist())
+                pr_cols = [col for col in ["repo_full_name", "pr_id", "pr_number", "author_login"] if
+                           col in prs_df.columns]
+                if pr_cols:
+                    print(prs_df[pr_cols].head(5).to_string(index=False))
+                if "author_login" in prs_df.columns:
+                    print("pull_requests non-null author_login:", int(prs_df["author_login"].notna().sum()))
+
+            if pr_commit_links_df is None:
+                print("pr_commit_links: None")
+            else:
+                print("pr_commit_links rows:", len(pr_commit_links_df))
+                print("pr_commit_links columns:", pr_commit_links_df.columns.tolist())
+                link_cols = [col for col in ["repo_full_name", "pr_id", "pr_number", "commit_sha"] if
+                             col in pr_commit_links_df.columns]
+                if link_cols:
+                    print(pr_commit_links_df[link_cols].head(5).to_string(index=False))
+
+            if commits_df is None:
+                print("commits: None")
+            else:
+                print("commits rows:", len(commits_df))
+                print("commits columns:", commits_df.columns.tolist())
+                commit_cols = [col for col in ["repo_full_name", "commit_sha", "author_email", "author_name"] if
+                               col in commits_df.columns]
+                if commit_cols:
+                    print(commits_df[commit_cols].head(5).to_string(index=False))
+                if "author_email" in commits_df.columns:
+                    print("commits non-null author_email:", int(commits_df["author_email"].notna().sum()))
+
+            if prs_df is not None and pr_commit_links_df is not None:
+                if {"pr_id", "author_login"}.issubset(prs_df.columns) and {"pr_id", "commit_sha"}.issubset(
+                        pr_commit_links_df.columns):
+                    joined_by_id = (
+                        prs_df[["pr_id", "author_login"]].dropna().drop_duplicates()
+                        .merge(
+                            pr_commit_links_df[["pr_id", "commit_sha"]].dropna().drop_duplicates(),
+                            on="pr_id",
+                            how="inner",
+                        )
+                    )
+                    print("join rows by pr_id:", len(joined_by_id))
+
+                if {"pr_number", "author_login"}.issubset(prs_df.columns) and {"pr_number", "commit_sha"}.issubset(
+                        pr_commit_links_df.columns):
+                    joined_by_number = (
+                        prs_df[["pr_number", "author_login"]].dropna().drop_duplicates()
+                        .merge(
+                            pr_commit_links_df[["pr_number", "commit_sha"]].dropna().drop_duplicates(),
+                            on="pr_number",
+                            how="inner",
+                        )
+                    )
+                    print("join rows by pr_number:", len(joined_by_number))
+
+            print("=== BRIDGE DEBUG END ===\n")
+        bridge_payload = build_pr_login_email_bridge(
+            stage_inputs.get("pull_requests"),
+            stage_inputs.get("pr_commit_links"),
+            stage_inputs.get("commits"),
+            config,
+        )
+
+    result["pr_login_email_bridge_pair_candidates"] = int(len(bridge_payload.get("evidence_counts", {})))
+    result["pr_login_email_bridge_pairs"] = int(len(bridge_payload.get("login_to_email", {})))
+    result["pr_login_email_bridge_pairs_retained"] = int(len(bridge_payload.get("login_to_email", {})))
+    result["pr_login_email_bridge_min_evidence_required"] = safe_int(
+        get_identity_bridge_option(config, "pr_commit_bridge_min_pair_evidence", 2),
+        2,
+    )
     df["bridged_email_from_pr_author_login"] = df["normalized_login_candidate"].map(bridge_payload["login_to_email"])
+    df["bridged_email_evidence_count"] = df["normalized_login_candidate"].apply(
+        lambda login_value: (
+            bridge_payload["evidence_counts"].get(
+                (login_value, bridge_payload["login_to_email"].get(login_value))
+            )
+            if clean_text(login_value) and bridge_payload["login_to_email"].get(login_value)
+            else None
+        )
+    )
+    df["bridged_email_distinct_pr_count"] = df["normalized_login_candidate"].apply(
+        lambda login_value: (
+            bridge_payload["evidence_pr_counts"].get(
+                (login_value, bridge_payload["login_to_email"].get(login_value))
+            )
+            if clean_text(login_value) and bridge_payload["login_to_email"].get(login_value)
+            else None
+        )
+    )
     df["bot_flag"] = df.apply(
         lambda row: detect_bot_flag(row.get("raw_login"), row.get("raw_name"), row.get("raw_email"), config),
         axis=1,
@@ -678,7 +872,7 @@ def write_summary_csv(summary_rows, output_path):
 
 
 def write_run_manifest(config, repo_rows, summary_rows):
-    manifest_path = Path(config.logging.linkage_log_dir) / "06_build_identity_map_run_manifest.json"
+    manifest_path = Path(config.logging.linkage_log_dir) / "07_build_identity_map_run_manifest.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "script": "build_identity_map.py",
@@ -775,7 +969,7 @@ def main():
             write_repo_checkpoint(config, CHECKPOINT_PREFIX, repo_full_name, error_row)
 
     merge_identity_batches(config, logger)
-    write_summary_csv(summary_rows, Path(config.logging.linkage_log_dir) / "06_build_identity_map_summary.csv")
+    write_summary_csv(summary_rows, Path(config.logging.linkage_log_dir) / "07_build_identity_map_summary.csv")
     write_run_manifest(config, repo_rows, summary_rows)
     logger.info("Identity resolution complete.")
 

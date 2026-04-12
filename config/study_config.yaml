@@ -306,10 +306,18 @@ identity_resolution:
     - "email_exact"
     - "normalized_name_exact"
   max_repos_per_run: 50
-  resume_mode: "fresh" # fresh | checkpoint_only | raw_or_checkpoint
+  resume_mode: "fresh"
   write_batch_size: 1000
   write_cluster_summary: true
   preserve_normalized_columns: true
+  aggressive_fuzzy_merge: false
+  keep_unresolved_identities: true
+  store_identity_confidence: true
+
+  pr_commit_bridge_min_pair_evidence: 1
+  pr_commit_bridge_min_distinct_prs: 1
+  pr_commit_bridge_require_bijective: true
+
   normalized_name_rules:
     lowercase: true
     strip_whitespace: true
@@ -318,9 +326,6 @@ identity_resolution:
     lowercase: true
     strip_whitespace: true
     allow_email_for_internal_mapping_only: true
-  aggressive_fuzzy_merge: false
-  keep_unresolved_identities: true
-  store_identity_confidence: true
 
 bot_handling:
   detect_bots: true
