@@ -244,3 +244,52 @@ class SentimentFeatureRepoChunkWriter:
         df.to_parquet(output_path, index=False, compression=self.config.storage.compression.parquet_compression)
         self._issue_rows = []
         self._issue_part_index += 1
+
+class OwnershipFeatureRepoChunkWriter:
+    def __init__(self, config, repo_dir, batch_size=5000):
+        self.config = config
+        self.repo_dir = Path(repo_dir)
+        self.repo_dir.mkdir(parents=True, exist_ok=True)
+        self.batch_size = int(batch_size) if batch_size else 5000
+        self.issue_rows = []
+        self.evidence_rows = []
+        self.issue_part_index = 0
+        self.evidence_part_index = 0
+
+    def add_issue_row(self, row):
+        self.issue_rows.append(dict(row))
+        if len(self.issue_rows) >= self.batch_size:
+            self._flush_issue_rows()
+
+    def add_evidence_row(self, row):
+        self.evidence_rows.append(dict(row))
+        if len(self.evidence_rows) >= self.batch_size:
+            self._flush_evidence_rows()
+
+    def _flush_issue_rows(self):
+        if not self.issue_rows:
+            return
+        self.issue_part_index += 1
+        output_path = self.repo_dir / f"issue_ownership_features_part_{self.issue_part_index:05d}.parquet"
+        pd.DataFrame(self.issue_rows).to_parquet(
+            output_path,
+            index=False,
+            compression=self.config.storage.compression.parquet_compression,
+        )
+        self.issue_rows = []
+
+    def _flush_evidence_rows(self):
+        if not self.evidence_rows:
+            return
+        self.evidence_part_index += 1
+        output_path = self.repo_dir / f"issue_file_ownership_evidence_part_{self.evidence_part_index:05d}.parquet"
+        pd.DataFrame(self.evidence_rows).to_parquet(
+            output_path,
+            index=False,
+            compression=self.config.storage.compression.parquet_compression,
+        )
+        self.evidence_rows = []
+
+    def finalize(self):
+        self._flush_issue_rows()
+        self._flush_evidence_rows()
