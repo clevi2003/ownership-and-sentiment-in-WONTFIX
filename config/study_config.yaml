@@ -41,14 +41,14 @@ github:
 
 study_windows:
   repo_activity:
-    activity_cutoff_date: "2022-01-01"
+    activity_cutoff_date: "2021-01-01"
     use_last_push_date: true
   issue_collection:
-    start_date: "2022-01-01"
+    start_date: "2021-01-01"
     end_date: "2025-12-31"
     include_open_issues_after_end_date: true
   participation_analysis:
-    start_date: "2022-01-01"
+    start_date: "2021-01-01"
     end_date: "2025-12-31"
     time_window_unit: "month"
 
@@ -66,14 +66,35 @@ repo_selection:
       - "Python"
       - "JavaScript"
       - "TypeScript"
+      - "Java"
+      - "Go"
+      - "C++"
+      - "C"
+      - "Rust"
+      - "PHP"
+      - "Ruby"
+      - "C#"
     owners_allowlist: []
     owners_blocklist: []
-    repos_allowlist: # []
+    repos_allowlist:
+      - "cloudreve/Cloudreve"
+      - "AlistGo/alist"
+      - "yt-dlp/yt-dlp"
+      - "jitsi/jitsi-meet"
+      - "pear-devs/pear-desktop"
+    repos_blocklist:
+      - "hiyouga/LlamaFactory"
       - "nextcloud/docker"
-    repos_blocklist: []
+      - "coqui-ai/TTS"
+      - "opendatalab/MinerU"
+      - "typescript-cheatsheets/react"
+      - "jgraph/drawio-desktop"
+      - "appsmithorg/appsmith"
+      - "freeCodeCamp/freeCodeCamp"
+      - "grafana/grafana"
   activity_definition:
     field: "pushed_at"
-    cutoff_date: "2022-01-01"
+    cutoff_date: "2021-01-01"
   archival_policy:
     if_archive_status_unavailable: "keep_and_flag"
   fork_policy:
@@ -85,15 +106,15 @@ repo_selection:
     track_template: true
 
 repo_discovery:
-  max_repo_search_pages: 3
-  max_issue_search_pages_per_query: 2
+  max_repo_search_pages: 10
+  max_issue_search_pages_per_query: 5
   split_wontfix_issue_search_by_year: true
-  candidate_repo_limit: 50
-  final_repo_limit: 12
+  candidate_repo_limit: 1852
+  final_repo_limit: 1852
   final_wontfix_count_screen:
     enabled: true
     count_mode: "repo_search_total_count"
-    min_approx_wontfix_issue_count: 10
+    min_approx_wontfix_issue_count: 3
     sort_descending_before_final_limit: true
 
 label_normalization:
@@ -190,8 +211,8 @@ issue_selection:
 issue_extraction:
   enabled: true
   max_issue_pages_per_repo_per_state: 50
-  max_comment_pages_per_issue: 3
-  max_repos_per_run: 50
+  max_comment_pages_per_issue: 15
+  max_repos_per_run: 5
   resume_mode: "fresh" # checkpoint_only, raw_or_checkpoint, or fresh
   write_repo_manifest: true
   fail_on_missing_repo_id: true
@@ -388,6 +409,7 @@ outputs:
   analysis_dataset_rq2_table: "./data/final/analysis_dataset_rq2.parquet"
   analysis_dataset_rq3_issue_level_base_table: "./data/final/analysis_dataset_rq3_issue_level_base.parquet"
   analysis_dataset_qa_summary_csv: "./logs/qa/analysis_dataset_qa_summary.csv"
+  pr_commit_overlap_qa_summary_csv: "./logs/qa/pr_commit_overlap_qa_summary.csv"
 
 checkpointing:
   enabled: true

@@ -1,13 +1,16 @@
 from __future__ import annotations
-
 from pathlib import Path
 import ast
 import json
-import math
 import re
 from typing import Any
-
 import pandas as pd
+import sys
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.study_config_loader import load_study_config
 
@@ -82,7 +85,6 @@ def parse_label_value(value: Any) -> list[str]:
     if not text:
         return []
 
-    # try JSON / Python literal list
     if text.startswith("[") and text.endswith("]"):
         for parser in (json.loads, ast.literal_eval):
             try:
@@ -92,7 +94,6 @@ def parse_label_value(value: Any) -> list[str]:
             except Exception:
                 pass
 
-    # common separators
     parts = re.split(r"[|,;]", text)
     if len(parts) > 1:
         return [p.strip().lower() for p in parts if p.strip()]
@@ -128,7 +129,7 @@ def normalize_numeric(series: pd.Series | None) -> pd.Series | None:
     return pd.to_numeric(series, errors="coerce").fillna(0)
 
 
-def pick_paths(config: Any) -> tuple[Path, Path, Path, Path]:
+def pick_paths(config: Any) -> tuple[Path, Path, Path, Path, Path, Path | None]:
     issues_path = Path(
         get_cfg(config, "outputs", "issues_table")
         or get_cfg(config, "issues_table")
@@ -153,12 +154,32 @@ def pick_paths(config: Any) -> tuple[Path, Path, Path, Path]:
         or "logs/comparison_issue_qa_summary.csv"
     )
 
-    return issues_path, wontfix_output_path, comparison_output_path, qa_summary_path
+    pair_output_path = Path(
+        get_cfg(config, "outputs", "wontfix_comparison_pairs_table")
+        or get_cfg(config, "outputs", "wontfix_comparison_pairs")
+        or "data/processed/wontfix_comparison_pairs.parquet"
+    )
+
+    issue_pr_links_path_raw = (
+        get_cfg(config, "outputs", "issue_pr_links_table")
+        or get_cfg(config, "issue_pr_links_table")
+    )
+    issue_pr_links_path = Path(issue_pr_links_path_raw) if issue_pr_links_path_raw else None
+
+    return (
+        issues_path,
+        wontfix_output_path,
+        comparison_output_path,
+        qa_summary_path,
+        pair_output_path,
+        issue_pr_links_path,
+    )
 
 
 def resolve_matching_settings(config: Any) -> tuple[int, int]:
     max_controls = (
-        get_cfg(config, "comparison_set", "max_controls_per_wontfix")
+        get_cfg(config, "comparison_set", "matching_rules", "max_controls_per_wontfix")
+        or get_cfg(config, "comparison_set", "max_controls_per_wontfix")
         or get_cfg(config, "comparison_set", "max_controls")
         or 3
     )
@@ -170,26 +191,54 @@ def resolve_matching_settings(config: Any) -> tuple[int, int]:
     return int(max_controls), int(time_window_days)
 
 
+def _unique_lowered(values: list[str]) -> list[str]:
+    cleaned = []
+    seen = set()
+    for value in values:
+        text = str(value).strip().lower()
+        if text and text not in seen:
+            seen.add(text)
+            cleaned.append(text)
+    return cleaned
+
+
 def resolve_label_settings(config: Any) -> tuple[list[str], list[str], dict[str, list[str]]]:
     wontfix_labels = (
-        get_cfg(config, "comparison_set", "wontfix_label_variants")
+        get_cfg(config, "label_normalization", "outcome_labels", "wontfix", "variants")
+        or get_cfg(config, "comparison_set", "wontfix_label_variants")
         or get_cfg(config, "labels", "wontfix")
         or DEFAULT_WONTFIX_LABELS
     )
 
     invalid_labels = (
-        get_cfg(config, "comparison_set", "invalid_label_variants")
+        get_cfg(config, "label_normalization", "outcome_labels", "invalid", "variants")
+        or get_cfg(config, "comparison_set", "invalid_label_variants")
         or get_cfg(config, "labels", "invalid")
         or DEFAULT_INVALID_LABELS
     )
 
-    issue_type_map = (
-        get_cfg(config, "comparison_set", "issue_type_label_groups")
-        or get_cfg(config, "issue_types")
-        or DEFAULT_ISSUE_TYPE_MAP
-    )
+    issue_type_map = get_cfg(config, "comparison_set", "issue_type_label_groups")
+    if not issue_type_map:
+        issue_type_map = {
+            "bug": get_cfg(config, "label_normalization", "issue_type_labels", "bug", "variants", default=[]),
+            "feature": get_cfg(config, "label_normalization", "issue_type_labels", "feature_request", "variants", default=[]),
+            "documentation": get_cfg(config, "label_normalization", "issue_type_labels", "documentation", "variants", default=[]),
+            "question": get_cfg(config, "label_normalization", "issue_type_labels", "question", "variants", default=[]),
+        }
 
-    return list(wontfix_labels), list(invalid_labels), dict(issue_type_map)
+    if not any(issue_type_map.values()):
+        issue_type_map = get_cfg(config, "issue_types") or DEFAULT_ISSUE_TYPE_MAP
+
+    normalized_issue_type_map = {
+        str(key): _unique_lowered(list(values or []))
+        for key, values in dict(issue_type_map).items()
+    }
+
+    return (
+        _unique_lowered(list(wontfix_labels)),
+        _unique_lowered(list(invalid_labels)),
+        normalized_issue_type_map,
+    )
 
 
 def add_derived_columns(
@@ -197,32 +246,51 @@ def add_derived_columns(
     wontfix_labels: list[str],
     invalid_labels: list[str],
     issue_type_map: dict[str, list[str]],
+    issue_pr_links_df: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, dict[str, str | None]]:
     df = issues_df.copy()
 
     colmap = {
         "issue_id": find_column(df, ["issue_id", "id", "number"], required=True),
-        "repo": find_column(df, ["repo_name", "repository_name", "repo", "full_name"], required=True),
+        "repo": find_column(df, ["repo_full_name", "repo_name", "repository_name", "repo", "full_name"], required=True),
         "created_at": find_column(df, ["created_at", "issue_created_at", "created"], required=True),
         "closed_at": find_column(df, ["closed_at", "issue_closed_at", "closed"]),
         "state": find_column(df, ["state", "issue_state", "status"]),
-        "labels": find_column(df, ["labels", "label_names", "issue_labels"], required=True),
+        "labels": find_column(df, ["label_names_json", "labels", "label_names", "issue_labels"], required=True),
         "comment_count": find_column(df, ["comments", "comment_count", "num_comments", "comments_count"]),
         "linked_pr": find_column(df, ["has_linked_pr", "linked_pr", "linked_pull_request", "has_pr", "pull_request"]),
         "issue_type": find_column(df, ["issue_type", "type"]),
+        "issue_number": find_column(df, ["issue_number", "number"]),
+        "is_wontfix_labeled": find_column(df, ["is_wontfix_labeled"]),
     }
 
     df["__issue_id"] = df[colmap["issue_id"]].astype(str)
+
+    if colmap["issue_number"]:
+        df["__issue_number"] = pd.to_numeric(df[colmap["issue_number"]], errors="coerce")
+    else:
+        df["__issue_number"] = pd.NA
+
     df["__repo"] = df[colmap["repo"]].astype(str)
     df["__created_at"] = normalize_datetime(df[colmap["created_at"]])
     df["__closed_at"] = normalize_datetime(df[colmap["closed_at"]]) if colmap["closed_at"] else pd.NaT
     df["__state"] = df[colmap["state"]].astype(str).str.lower() if colmap["state"] else ""
-    df["__comment_count"] = (
-        normalize_numeric(df[colmap["comment_count"]]) if colmap["comment_count"] else 0
-    )
-
+    df["__comment_count"] = normalize_numeric(df[colmap["comment_count"]]) if colmap["comment_count"] else 0
     df["__labels_list"] = df[colmap["labels"]].apply(parse_label_value)
-    df["__is_wontfix"] = df["__labels_list"].apply(lambda x: contains_any(x, wontfix_labels))
+
+    if colmap["is_wontfix_labeled"]:
+        raw_wf = df[colmap["is_wontfix_labeled"]]
+        if pd.api.types.is_bool_dtype(raw_wf):
+            df["__is_wontfix"] = raw_wf.fillna(False)
+        else:
+            raw_num = pd.to_numeric(raw_wf, errors="coerce")
+            if raw_num.notna().any():
+                df["__is_wontfix"] = raw_num.fillna(0) > 0
+            else:
+                df["__is_wontfix"] = raw_wf.astype(str).str.lower().isin({"true", "1", "yes", "y"})
+    else:
+        df["__is_wontfix"] = df["__labels_list"].apply(lambda x: contains_any(x, wontfix_labels))
+
     df["__is_invalid"] = df["__labels_list"].apply(lambda x: contains_any(x, invalid_labels))
 
     if colmap["issue_type"]:
@@ -239,11 +307,37 @@ def add_derived_columns(
             if raw_num.notna().any():
                 df["__has_linked_pr"] = raw_num.fillna(0) > 0
             else:
-                df["__has_linked_pr"] = raw.astype(str).str.lower().isin(
-                    {"true", "1", "yes", "y"}
-                )
+                df["__has_linked_pr"] = raw.astype(str).str.lower().isin({"true", "1", "yes", "y"})
     else:
         df["__has_linked_pr"] = False
+
+    if issue_pr_links_df is not None and not issue_pr_links_df.empty:
+        links_df = issue_pr_links_df.copy()
+        repo_link_col = find_column(links_df, ["repo_full_name", "repo_name", "repo", "full_name"])
+        issue_number_link_col = find_column(links_df, ["issue_number", "number"])
+        issue_id_link_col = find_column(links_df, ["issue_id", "id"])
+
+        linked_issue_keys = set()
+        if repo_link_col and issue_number_link_col:
+            repo_series = links_df[repo_link_col].astype(str)
+            issue_number_series = pd.to_numeric(links_df[issue_number_link_col], errors="coerce")
+            valid = issue_number_series.notna()
+            linked_issue_keys = set(zip(repo_series[valid], issue_number_series[valid].astype(int)))
+
+            if colmap["issue_number"]:
+                issue_number_series = pd.to_numeric(df[colmap["issue_number"]], errors="coerce")
+                has_link = [
+                    (repo, int(issue_num)) in linked_issue_keys if pd.notna(issue_num) else False
+                    for repo, issue_num in zip(df["__repo"], issue_number_series)
+                ]
+                df["__has_linked_pr"] = pd.Series(has_link, index=df.index)
+
+        elif repo_link_col and issue_id_link_col:
+            linked_issue_id_keys = set(zip(links_df[repo_link_col].astype(str), links_df[issue_id_link_col].astype(str)))
+            df["__has_linked_pr"] = [
+                (repo, issue_id) in linked_issue_id_keys
+                for repo, issue_id in zip(df["__repo"], df["__issue_id"])
+            ]
 
     df["__is_open"] = df["__state"].eq("open")
     df["__is_closed"] = df["__state"].eq("closed") | df["__closed_at"].notna()
@@ -260,7 +354,6 @@ def add_derived_columns(
 def candidate_score(wf_row: pd.Series, cand_row: pd.Series) -> float:
     score = 0.0
 
-    # lower is better
     if pd.notna(wf_row["__created_at"]) and pd.notna(cand_row["__created_at"]):
         day_diff = abs((cand_row["__created_at"] - wf_row["__created_at"]).days)
         score += min(day_diff, 3650) / 30.0
@@ -270,7 +363,6 @@ def candidate_score(wf_row: pd.Series, cand_row: pd.Series) -> float:
     comment_diff = abs(float(cand_row["__comment_count"]) - float(wf_row["__comment_count"]))
     score += min(comment_diff, 100)
 
-    # bonuses as negative score
     if wf_row["__issue_type"] and cand_row["__issue_type"] and wf_row["__issue_type"] == cand_row["__issue_type"]:
         score -= 15
 
@@ -335,11 +427,78 @@ def select_comparison_controls(
         selected["__matched_to_wontfix_issue_id"] = wf_row["__issue_id"]
         selected["__matched_to_repo"] = wf_row["__repo"]
         selected["__matched_to_issue_type"] = wf_row["__issue_type"]
+        selected["__matched_to_wontfix_issue_number"] = wf_row["__issue_number"]
+
         selected_rows.extend([row for _, row in selected.iterrows()])
         used_candidate_ids.update(selected["__issue_id"].tolist())
 
     comparison_df = pd.DataFrame(selected_rows) if selected_rows else derived_df.iloc[0:0].copy()
     return wontfix_df, comparison_df
+
+
+def build_pair_mapping(comparison_df: pd.DataFrame, derived_df: pd.DataFrame) -> pd.DataFrame:
+    if comparison_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "repo_full_name",
+                "wontfix_issue_id",
+                "wontfix_issue_number",
+                "comparison_issue_id",
+                "comparison_issue_number",
+            ]
+        )
+
+    if "__issue_number" not in derived_df.columns:
+        issue_number_col = find_column(derived_df, ["issue_number", "number"])
+        if issue_number_col is None:
+            raise KeyError("Could not find issue_number/number column needed for pair mapping.")
+        issue_id_to_number = (
+            derived_df[["__issue_id", issue_number_col]]
+            .drop_duplicates()
+            .rename(columns={issue_number_col: "__issue_number"})
+            .copy()
+        )
+    else:
+        issue_id_to_number = derived_df[["__issue_id", "__issue_number"]].drop_duplicates().copy()
+
+    pair_df = comparison_df[
+        ["__repo", "__matched_to_wontfix_issue_id", "__issue_id"]
+    ].drop_duplicates().copy()
+
+    pair_df = pair_df.rename(
+        columns={
+            "__repo": "repo_full_name",
+            "__matched_to_wontfix_issue_id": "wontfix_issue_id",
+            "__issue_id": "comparison_issue_id",
+        }
+    )
+
+    wontfix_num_map = issue_id_to_number.rename(
+        columns={
+            "__issue_id": "wontfix_issue_id",
+            "__issue_number": "wontfix_issue_number",
+        }
+    )
+
+    comparison_num_map = issue_id_to_number.rename(
+        columns={
+            "__issue_id": "comparison_issue_id",
+            "__issue_number": "comparison_issue_number",
+        }
+    )
+
+    pair_df = pair_df.merge(wontfix_num_map, on="wontfix_issue_id", how="left")
+    pair_df = pair_df.merge(comparison_num_map, on="comparison_issue_id", how="left")
+
+    return pair_df[
+        [
+            "repo_full_name",
+            "wontfix_issue_id",
+            "wontfix_issue_number",
+            "comparison_issue_id",
+            "comparison_issue_number",
+        ]
+    ].drop_duplicates()
 
 
 def build_qa_summary(
@@ -357,9 +516,7 @@ def build_qa_summary(
 
     zero_match_count = 0
     if not wontfix_df.empty:
-        zero_match_count = int(
-            (~wontfix_df["__issue_id"].isin(set(matched_counts.index.astype(str)))).sum()
-        )
+        zero_match_count = int((~wontfix_df["__issue_id"].isin(set(matched_counts.index.astype(str)))).sum())
 
     summary = {
         "total_issues": int(len(full_df)),
@@ -382,18 +539,36 @@ def drop_internal_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=internal_cols, errors="ignore")
 
 
+def maybe_load_issue_pr_links(issue_pr_links_path: Path | None) -> pd.DataFrame | None:
+    if issue_pr_links_path is None:
+        return None
+    if not issue_pr_links_path.exists():
+        return None
+    return pd.read_parquet(issue_pr_links_path)
+
+
 def main():
     config = load_study_config("config/study_config.yaml")
 
-    issues_path, wontfix_output_path, comparison_output_path, qa_summary_path = pick_paths(config)
+    (
+        issues_path,
+        wontfix_output_path,
+        comparison_output_path,
+        qa_summary_path,
+        pair_output_path,
+        issue_pr_links_path,
+    ) = pick_paths(config)
+
     max_controls_per_wontfix, time_window_days = resolve_matching_settings(config)
     wontfix_labels, invalid_labels, issue_type_map = resolve_label_settings(config)
 
     print("Loaded config successfully.")
     print(f"Issues input path: {issues_path}")
+    print(f"Issue-PR links input path: {issue_pr_links_path}")
     print(f"WONTFIX output path: {wontfix_output_path}")
     print(f"Comparison output path: {comparison_output_path}")
     print(f"QA summary path: {qa_summary_path}")
+    print(f"Pair mapping output path: {pair_output_path}")
     print(f"Max controls per WONTFIX: {max_controls_per_wontfix}")
     print(f"Time window (days): {time_window_days}")
 
@@ -401,7 +576,14 @@ def main():
         raise FileNotFoundError(f"Issues table not found: {issues_path}")
 
     issues_df = pd.read_parquet(issues_path)
+    issue_pr_links_df = maybe_load_issue_pr_links(issue_pr_links_path)
+
     print(f"Loaded issues table with {len(issues_df)} rows.")
+    if issue_pr_links_df is not None:
+        print(f"Loaded issue_pr_links table with {len(issue_pr_links_df)} rows.")
+    else:
+        print("Issue-PR links table not found or not configured; using issue-only fallback for linked PR detection.")
+
     print("Columns:")
     print(list(issues_df.columns))
 
@@ -410,6 +592,7 @@ def main():
         wontfix_labels=wontfix_labels,
         invalid_labels=invalid_labels,
         issue_type_map=issue_type_map,
+        issue_pr_links_df=issue_pr_links_df,
     )
 
     print("Resolved column mapping:")
@@ -429,17 +612,22 @@ def main():
         time_window_days=time_window_days,
     )
 
+    pair_df = build_pair_mapping(comparison_df=comparison_df, derived_df=derived_df)
+
     ensure_parent_dir(wontfix_output_path)
     ensure_parent_dir(comparison_output_path)
     ensure_parent_dir(qa_summary_path)
+    ensure_parent_dir(pair_output_path)
 
     drop_internal_columns(wontfix_df).to_parquet(wontfix_output_path, index=False)
     drop_internal_columns(comparison_df).to_parquet(comparison_output_path, index=False)
     qa_df.to_csv(qa_summary_path, index=False)
+    pair_df.to_parquet(pair_output_path, index=False)
 
     print(f"Saved WONTFIX issue set: {wontfix_output_path} ({len(wontfix_df)} rows)")
     print(f"Saved comparison issue set: {comparison_output_path} ({len(comparison_df)} rows)")
     print(f"Saved QA summary CSV: {qa_summary_path}")
+    print(f"Saved pair mapping: {pair_output_path} ({len(pair_df)} rows)")
 
 
 if __name__ == "__main__":

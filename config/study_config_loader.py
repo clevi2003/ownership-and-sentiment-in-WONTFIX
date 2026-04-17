@@ -452,6 +452,7 @@ class OutputsConfig:
     run_manifest_json: str
     resolved_config_snapshot_yaml: str
     comparison_issue_qa_summary_csv: str
+    pr_commit_overlap_qa_summary_csv: str
 
 @dataclass
 class CheckpointingConfig:
@@ -1011,6 +1012,7 @@ def _parse_outputs(raw_outputs):
         pull_requests_table=raw_outputs.get("pull_requests_table", "./data/processed/pull_requests.parquet"),
         commits_table=raw_outputs.get("commits_table", "./data/processed/commits.parquet"),
         commit_files_table=raw_outputs.get("commit_files_table", "./data/processed/commit_files.parquet"),
+        pr_commit_overlap_qa_summary_csv=raw_outputs.get("pr_commit_overlap_qa_summary", "./logs/qa/pr_commit_overlap_qa_summary.csv"),
 
         comparison_issue_set_table=raw_outputs.get("comparison_issue_set_table", "./data/final/issue_sets/comparison_issue_set.parquet"),
         wontfix_issue_set_table=raw_outputs.get("wontfix_issue_set_table", "./data/final/issue_sets/wontfix_issue_set.parquet"),

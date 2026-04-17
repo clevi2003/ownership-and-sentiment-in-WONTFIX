@@ -40,7 +40,7 @@ from typing import Iterable
 TEXT_EXTENSIONS = {
     ".txt", ".md", ".csv", ".tsv", ".jsonl", ".log", ".yaml", ".yml",
     ".py", ".js", ".ts", ".java", ".c", ".cpp", ".h", ".hpp", ".xml",
-    ".html", ".css", ".sql", ".sh", ".bat", ".ps1", ".r", ".go", ".rs",
+    ".html", ".css", ".sql", ".sh", ".bat", ".ps1", ".r", ".go", ".rs", ".parquet"
 }
 
 
