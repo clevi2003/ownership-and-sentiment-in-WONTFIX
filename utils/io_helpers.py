@@ -331,6 +331,10 @@ def take_mean(values):
         return 0.0
     return float(sum(numeric_values)) / float(len(numeric_values))
 
+def mean_or_none(values):
+    if not values:
+        return None
+    return take_mean(values)
 
 def take_std(values):
     numeric_values = [float(value) for value in values if value is not None and not pd.isna(value)]

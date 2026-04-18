@@ -242,7 +242,7 @@ git_history_extraction:
   include_full_history: true
   history_start_date: null
   history_end_date: null
-  fast_mode: true
+  fast_mode: false
   fast_mode_date_window: "participation_analysis" # issue_collection | participation_analysis | explicit_history_dates
   commit_message_mode: "subject_only" # full | subject_only | none
   max_commit_message_chars: 300
@@ -308,6 +308,7 @@ linkage:
     notes:
       - "Issues without file links should be ok to use for RQ1 and RQ3."
       - "RQ2 should prob use only issues with high and maybe medium confidence issue-file linkage."
+      -
 issue_file_linking:
   enabled: true
   max_repos_per_run: 50
@@ -316,6 +317,28 @@ issue_file_linking:
   include_comment_text_fallback: true
   require_repo_file_match_for_text_links: true
   allow_unique_basename_match: true
+
+ownership_features:
+  enabled: true
+  max_repos_per_run: 50
+  resume_mode: "fresh"
+  write_batch_size: 5000
+  merge_sha_min_present_rate: 0.80
+  exact_pr_commit_min_overlap_rate: 0.50
+  head_sha_min_present_rate: 0.50
+  allow_file_fallback_when_no_pr_evidence: true
+  prefer_pr_based_evidence_over_file_fallback: true
+  allow_fallback_sources:
+    - "pr_commit_chain"
+  allow_fallback_confidence_levels:
+    - "high"
+  high_confidence_issue_file_levels:
+    - "high"
+  exclude_bots_from_ownership: true
+  min_linked_files_for_ok: 1
+  min_resolved_commit_rows_for_ok: 1
+  min_contributors_for_ok: 1
+  write_evidence_table: true
 
 identity_resolution:
   enabled: true

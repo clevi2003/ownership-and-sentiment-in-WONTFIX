@@ -506,6 +506,26 @@ class AnalysisDatasetConfig:
     filter_rq2_to_ownership_usable: bool = False
 
 @dataclass
+class OwnershipFeaturesConfig:
+    enabled: bool = True
+    max_repos_per_run = None
+    resume_mode: str = "fresh"
+    write_batch_size: int = 5000
+    merge_sha_min_present_rate: float = 0.80
+    exact_pr_commit_min_overlap_rate: float = 0.50
+    head_sha_min_present_rate: float = 0.50
+    allow_file_fallback_when_no_pr_evidence: bool = True
+    prefer_pr_based_evidence_over_file_fallback: bool = True
+    allow_fallback_sources: list = field(default_factory=lambda: ["pr_commit_chain"])
+    allow_fallback_confidence_levels: list = field(default_factory=lambda: ["high"])
+    high_confidence_issue_file_levels: list = field(default_factory=lambda: ["high"])
+    exclude_bots_from_ownership: bool = True
+    min_linked_files_for_ok: int = 1
+    min_resolved_commit_rows_for_ok: int = 1
+    min_contributors_for_ok: int = 1
+    write_evidence_table: bool = True
+
+@dataclass
 class StudyConfig:
     study: StudyConfigSection
     paths: PathsConfig
@@ -529,6 +549,7 @@ class StudyConfig:
     logging: LoggingConfig
     quality_assurance: QualityAssuranceConfig
     rq_scoping: RqScopingConfig
+    ownership_features: OwnershipFeaturesConfig
     analysis_dataset: AnalysisDatasetConfig
 
 def _parse_study(data):
@@ -541,6 +562,28 @@ def _parse_study(data):
         semester=_get_required(d, "semester", section),
         date=_get_required(d, "date", section),
         notes=_get_optional(d, "notes", []),
+    )
+
+def _parse_ownership_features(data):
+    section = "ownership_features"
+    d = _require_dict(_get_optional(data, "ownership_features", {}), section)
+    return OwnershipFeaturesConfig(
+        enabled=_get_optional(d, "enabled", True),
+        resume_mode=_get_optional(d, "resume_mode", "fresh"),
+        write_batch_size=_get_optional(d, "write_batch_size", 5000),
+        merge_sha_min_present_rate=float(_get_optional(d, "merge_sha_min_present_rate", 0.80)),
+        exact_pr_commit_min_overlap_rate=float(_get_optional(d, "exact_pr_commit_min_overlap_rate", 0.50)),
+        head_sha_min_present_rate=float(_get_optional(d, "head_sha_min_present_rate", 0.50)),
+        allow_file_fallback_when_no_pr_evidence=_get_optional(d, "allow_file_fallback_when_no_pr_evidence", True),
+        prefer_pr_based_evidence_over_file_fallback=_get_optional(d, "prefer_pr_based_evidence_over_file_fallback", True),
+        allow_fallback_sources=_require_list(_get_optional(d, "allow_fallback_sources", ["pr_commit_chain"]), "ownership_features.allow_fallback_sources"),
+        allow_fallback_confidence_levels=_require_list(_get_optional(d, "allow_fallback_confidence_levels", ["high"]), "ownership_features.allow_fallback_confidence_levels"),
+        high_confidence_issue_file_levels=_require_list(_get_optional(d, "high_confidence_issue_file_levels", ["high"]), "ownership_features.high_confidence_issue_file_levels"),
+        exclude_bots_from_ownership=_get_optional(d, "exclude_bots_from_ownership", True),
+        min_linked_files_for_ok=int(_get_optional(d, "min_linked_files_for_ok", 1)),
+        min_resolved_commit_rows_for_ok=int(_get_optional(d, "min_resolved_commit_rows_for_ok", 1)),
+        min_contributors_for_ok=int(_get_optional(d, "min_contributors_for_ok", 1)),
+        write_evidence_table=_get_optional(d, "write_evidence_table", True),
     )
 
 def _parse_paths(data):
@@ -1155,6 +1198,7 @@ def load_study_config(config_path):
         logging=_parse_logging(raw_data),
         quality_assurance=_parse_quality_assurance(raw_data),
         rq_scoping=_parse_rq_scoping(raw_data),
+        ownership_features=_parse_ownership_features(raw_data),
         analysis_dataset=_parse_analysis_dataset(raw_data)
     )
     validate_study_config(config)
