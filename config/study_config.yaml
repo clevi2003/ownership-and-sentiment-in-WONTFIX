@@ -308,7 +308,7 @@ linkage:
     notes:
       - "Issues without file links should be ok to use for RQ1 and RQ3."
       - "RQ2 should prob use only issues with high and maybe medium confidence issue-file linkage."
-      -
+
 issue_file_linking:
   enabled: true
   max_repos_per_run: 50
@@ -320,7 +320,6 @@ issue_file_linking:
 
 ownership_features:
   enabled: true
-  max_repos_per_run: 50
   resume_mode: "fresh"
   write_batch_size: 5000
   merge_sha_min_present_rate: 0.80
@@ -339,6 +338,18 @@ ownership_features:
   min_resolved_commit_rows_for_ok: 1
   min_contributors_for_ok: 1
   write_evidence_table: true
+
+  enable_conservative_pre_issue_fallback: true
+  conservative_pre_issue_allowed_sources:
+    - "file_fallback"
+  conservative_pre_issue_allowed_confidence_levels:
+    - "high"
+  conservative_pre_issue_min_distinct_commits: 2
+  conservative_pre_issue_min_distinct_files: 1
+  conservative_pre_issue_min_distinct_days: 1
+  conservative_pre_issue_require_resolved_author: true
+  conservative_pre_issue_exclude_if_any_high_conf_pr_evidence: false
+  conservative_pre_issue_counts_toward_usable_any: true
 
 identity_resolution:
   enabled: true
@@ -370,6 +381,25 @@ identity_resolution:
     lowercase: true
     strip_whitespace: true
     allow_email_for_internal_mapping_only: true
+
+fuzzy_identity_resolution:
+  enabled: true
+  max_repos_per_run: 5
+  resume_mode: "fresh"
+  write_batch_size: 5000
+  require_same_repo: true
+  allow_commit_discussion_fuzzy_links: true
+  allow_name_similarity_links: true
+  allow_email_localpart_similarity_links: true
+  min_name_similarity_score: 0.94
+  min_email_localpart_similarity_score: 0.95
+  min_pair_score_for_merge: 0.90
+  min_pair_score_for_strong_merge: 1.20
+  require_multi_signal_for_non_exact_merge: true
+  require_structural_signal_for_name_based_merge: true
+  max_cluster_size_before_flag: 6
+  block_bot_merges: true
+  write_pair_audit_table: true
 
 bot_handling:
   detect_bots: true

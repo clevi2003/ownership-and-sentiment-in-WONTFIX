@@ -582,73 +582,73 @@ def resolve_identities(candidates_df, repo_id, config, result, stage_inputs=None
     }
 
     if stage_inputs is not None:
-        if stage_inputs is not None:
-            prs_df = stage_inputs.get("pull_requests")
-            pr_commit_links_df = stage_inputs.get("pr_commit_links")
-            commits_df = stage_inputs.get("commits")
+        # if stage_inputs is not None:
+        #     # prs_df = stage_inputs.get("pull_requests")
+            # pr_commit_links_df = stage_inputs.get("pr_commit_links")
+            # commits_df = stage_inputs.get("commits")
 
-            print("\n=== BRIDGE DEBUG START ===")
-
-            if prs_df is None:
-                print("pull_requests: None")
-            else:
-                print("pull_requests rows:", len(prs_df))
-                print("pull_requests columns:", prs_df.columns.tolist())
-                pr_cols = [col for col in ["repo_full_name", "pr_id", "pr_number", "author_login"] if
-                           col in prs_df.columns]
-                if pr_cols:
-                    print(prs_df[pr_cols].head(5).to_string(index=False))
-                if "author_login" in prs_df.columns:
-                    print("pull_requests non-null author_login:", int(prs_df["author_login"].notna().sum()))
-
-            if pr_commit_links_df is None:
-                print("pr_commit_links: None")
-            else:
-                print("pr_commit_links rows:", len(pr_commit_links_df))
-                print("pr_commit_links columns:", pr_commit_links_df.columns.tolist())
-                link_cols = [col for col in ["repo_full_name", "pr_id", "pr_number", "commit_sha"] if
-                             col in pr_commit_links_df.columns]
-                if link_cols:
-                    print(pr_commit_links_df[link_cols].head(5).to_string(index=False))
-
-            if commits_df is None:
-                print("commits: None")
-            else:
-                print("commits rows:", len(commits_df))
-                print("commits columns:", commits_df.columns.tolist())
-                commit_cols = [col for col in ["repo_full_name", "commit_sha", "author_email", "author_name"] if
-                               col in commits_df.columns]
-                if commit_cols:
-                    print(commits_df[commit_cols].head(5).to_string(index=False))
-                if "author_email" in commits_df.columns:
-                    print("commits non-null author_email:", int(commits_df["author_email"].notna().sum()))
-
-            if prs_df is not None and pr_commit_links_df is not None:
-                if {"pr_id", "author_login"}.issubset(prs_df.columns) and {"pr_id", "commit_sha"}.issubset(
-                        pr_commit_links_df.columns):
-                    joined_by_id = (
-                        prs_df[["pr_id", "author_login"]].dropna().drop_duplicates()
-                        .merge(
-                            pr_commit_links_df[["pr_id", "commit_sha"]].dropna().drop_duplicates(),
-                            on="pr_id",
-                            how="inner",
-                        )
-                    )
-                    print("join rows by pr_id:", len(joined_by_id))
-
-                if {"pr_number", "author_login"}.issubset(prs_df.columns) and {"pr_number", "commit_sha"}.issubset(
-                        pr_commit_links_df.columns):
-                    joined_by_number = (
-                        prs_df[["pr_number", "author_login"]].dropna().drop_duplicates()
-                        .merge(
-                            pr_commit_links_df[["pr_number", "commit_sha"]].dropna().drop_duplicates(),
-                            on="pr_number",
-                            how="inner",
-                        )
-                    )
-                    print("join rows by pr_number:", len(joined_by_number))
-
-            print("=== BRIDGE DEBUG END ===\n")
+            # print("\n=== BRIDGE DEBUG START ===")
+            #
+            # if prs_df is None:
+            #     print("pull_requests: None")
+            # else:
+            #     print("pull_requests rows:", len(prs_df))
+            #     print("pull_requests columns:", prs_df.columns.tolist())
+            #     pr_cols = [col for col in ["repo_full_name", "pr_id", "pr_number", "author_login"] if
+            #                col in prs_df.columns]
+            #     if pr_cols:
+            #         print(prs_df[pr_cols].head(5).to_string(index=False))
+            #     if "author_login" in prs_df.columns:
+            #         print("pull_requests non-null author_login:", int(prs_df["author_login"].notna().sum()))
+            #
+            # if pr_commit_links_df is None:
+            #     print("pr_commit_links: None")
+            # else:
+            #     print("pr_commit_links rows:", len(pr_commit_links_df))
+            #     print("pr_commit_links columns:", pr_commit_links_df.columns.tolist())
+            #     link_cols = [col for col in ["repo_full_name", "pr_id", "pr_number", "commit_sha"] if
+            #                  col in pr_commit_links_df.columns]
+            #     if link_cols:
+            #         print(pr_commit_links_df[link_cols].head(5).to_string(index=False))
+            #
+            # if commits_df is None:
+            #     print("commits: None")
+            # else:
+            #     print("commits rows:", len(commits_df))
+            #     print("commits columns:", commits_df.columns.tolist())
+            #     commit_cols = [col for col in ["repo_full_name", "commit_sha", "author_email", "author_name"] if
+            #                    col in commits_df.columns]
+            #     if commit_cols:
+            #         print(commits_df[commit_cols].head(5).to_string(index=False))
+            #     if "author_email" in commits_df.columns:
+            #         print("commits non-null author_email:", int(commits_df["author_email"].notna().sum()))
+            #
+            # if prs_df is not None and pr_commit_links_df is not None:
+            #     if {"pr_id", "author_login"}.issubset(prs_df.columns) and {"pr_id", "commit_sha"}.issubset(
+            #             pr_commit_links_df.columns):
+            #         joined_by_id = (
+            #             prs_df[["pr_id", "author_login"]].dropna().drop_duplicates()
+            #             .merge(
+            #                 pr_commit_links_df[["pr_id", "commit_sha"]].dropna().drop_duplicates(),
+            #                 on="pr_id",
+            #                 how="inner",
+            #             )
+            #         )
+            #         print("join rows by pr_id:", len(joined_by_id))
+            #
+            #     if {"pr_number", "author_login"}.issubset(prs_df.columns) and {"pr_number", "commit_sha"}.issubset(
+            #             pr_commit_links_df.columns):
+            #         joined_by_number = (
+            #             prs_df[["pr_number", "author_login"]].dropna().drop_duplicates()
+            #             .merge(
+            #                 pr_commit_links_df[["pr_number", "commit_sha"]].dropna().drop_duplicates(),
+            #                 on="pr_number",
+            #                 how="inner",
+            #             )
+            #         )
+            #         print("join rows by pr_number:", len(joined_by_number))
+            #
+            # print("=== BRIDGE DEBUG END ===\n")
         bridge_payload = build_pr_login_email_bridge(
             stage_inputs.get("pull_requests"),
             stage_inputs.get("pr_commit_links"),

@@ -46,6 +46,17 @@ def setup_logger(config):
 def get_ownership_option(config, field_name, default_value):
     return get_stage_option(config, "ownership_features", field_name, default_value)
 
+def get_conservative_pre_issue_option(config, field_name, default_value):
+    ownership_cfg = getattr(config, "ownership_features", None)
+    if ownership_cfg is None:
+        return default_value
+    if not hasattr(ownership_cfg, field_name):
+        return default_value
+    value = getattr(ownership_cfg, field_name)
+    if value is None:
+        return default_value
+    return value
+
 def get_stage_paths(config):
     outputs = getattr(config, "outputs", None)
     issue_output_path = getattr(outputs, "issue_ownership_features_table", None)
@@ -203,6 +214,26 @@ def new_repo_result(repo_full_name, repo_id=None):
         "issues_with_both_pre_and_post_issue_ownership": 0,
         "issues_with_only_pre_issue_ownership": 0,
         "issues_with_only_post_issue_ownership": 0,
+
+        "issues_with_pre_issue_high_confidence_ownership": 0,
+        "issues_with_post_issue_high_confidence_ownership": 0,
+        "issues_with_pre_issue_any_ownership": 0,
+        "issues_with_post_issue_any_ownership": 0,
+        "issues_with_any_conservative_pre_issue_fallback": 0,
+        "issues_with_pre_issue_conservative_fallback_only": 0,
+        "issues_with_pre_issue_any_but_not_high_confidence": 0,
+
+        "issues_selected_for_high_confidence_features": 0,
+        "issues_selected_for_any_features": 0,
+        "issues_selected_for_conservative_pre_issue_fallback": 0,
+
+        "total_selected_high_confidence_pre_issue_rows": 0,
+        "total_selected_any_pre_issue_rows": 0,
+        "total_selected_conservative_pre_issue_rows": 0,
+
+        "mean_pre_issue_high_confidence_contributor_count": None,
+        "mean_pre_issue_any_contributor_count": None,
+        "mean_pre_issue_conservative_fallback_contributor_count": None,
     }
 
 def build_repo_id_lookup(config):
@@ -335,6 +366,218 @@ def prepare_comment_frame(comments_df, target_issue_numbers):
 def confidence_rank(value):
     clean = normalize_value(value)
     return CONFIDENCE_RANK.get(clean, 0)
+
+def build_conservative_pre_issue_support_frame(evidence_df, config):
+    columns = [
+        "repo_full_name",
+        "issue_id",
+        "issue_number",
+        "commit_author_contributor_key",
+        "conservative_pre_issue_distinct_commits",
+        "conservative_pre_issue_distinct_files",
+        "conservative_pre_issue_distinct_days",
+        "conservative_pre_issue_support_ok",
+    ]
+    if evidence_df is None or evidence_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    df = evidence_df.copy()
+
+    enabled = bool(get_conservative_pre_issue_option(config, "enable_conservative_pre_issue_fallback", False))
+    if not enabled:
+        return pd.DataFrame(columns=columns)
+
+    allowed_sources = {
+        normalize_value(value)
+        for value in get_conservative_pre_issue_option(
+            config,
+            "conservative_pre_issue_allowed_sources",
+            ["file_fallback"],
+        )
+    }
+    allowed_conf_levels = {
+        normalize_value(value)
+        for value in get_conservative_pre_issue_option(
+            config,
+            "conservative_pre_issue_allowed_confidence_levels",
+            ["high"],
+        )
+    }
+
+    min_distinct_commits = int(
+        get_conservative_pre_issue_option(config, "conservative_pre_issue_min_distinct_commits", 2)
+    )
+    min_distinct_files = int(
+        get_conservative_pre_issue_option(config, "conservative_pre_issue_min_distinct_files", 1)
+    )
+    min_distinct_days = int(
+        get_conservative_pre_issue_option(config, "conservative_pre_issue_min_distinct_days", 1)
+    )
+    require_resolved_author = bool(
+        get_conservative_pre_issue_option(config, "conservative_pre_issue_require_resolved_author", True)
+    )
+
+    if "ownership_time_bucket" not in df.columns:
+        return pd.DataFrame(columns=columns)
+
+    df["ownership_time_bucket"] = df["ownership_time_bucket"].apply(normalize_value)
+    df = df[df["ownership_time_bucket"] == "pre_issue"].copy()
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    if "evidence_type" not in df.columns:
+        return pd.DataFrame(columns=columns)
+    df["evidence_type"] = df["evidence_type"].apply(normalize_value)
+    df = df[df["evidence_type"].isin(allowed_sources)].copy()
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    if "issue_file_confidence_level" in df.columns:
+        df["issue_file_confidence_level"] = df["issue_file_confidence_level"].apply(normalize_value)
+        df = df[df["issue_file_confidence_level"].isin(allowed_conf_levels)].copy()
+        if df.empty:
+            return pd.DataFrame(columns=columns)
+
+    if require_resolved_author:
+        if "commit_author_contributor_key" not in df.columns:
+            return pd.DataFrame(columns=columns)
+        df["commit_author_contributor_key"] = df["commit_author_contributor_key"].apply(clean_text)
+        df = df[df["commit_author_contributor_key"].notna()].copy()
+        if df.empty:
+            return pd.DataFrame(columns=columns)
+
+    if "commit_sha" in df.columns:
+        df["commit_sha"] = df["commit_sha"].apply(clean_text)
+    else:
+        df["commit_sha"] = None
+
+    if "file_path" in df.columns:
+        df["file_path"] = df["file_path"].apply(clean_text)
+    else:
+        df["file_path"] = None
+
+    if "commit_timestamp" in df.columns:
+        df["commit_timestamp"] = safe_to_datetime(df["commit_timestamp"])
+        df["commit_date"] = df["commit_timestamp"].dt.strftime("%Y-%m-%d")
+    else:
+        df["commit_date"] = None
+
+    group_columns = ["repo_full_name", "issue_id", "issue_number", "commit_author_contributor_key"]
+
+    support_df = (
+        df.groupby(group_columns, dropna=False)
+        .agg(
+            conservative_pre_issue_distinct_commits=("commit_sha", lambda s: int(pd.Series(s).dropna().nunique())),
+            conservative_pre_issue_distinct_files=("file_path", lambda s: int(pd.Series(s).dropna().nunique())),
+            conservative_pre_issue_distinct_days=("commit_date", lambda s: int(pd.Series(s).dropna().nunique())),
+        )
+        .reset_index()
+    )
+
+    support_df["conservative_pre_issue_support_ok"] = (
+        (support_df["conservative_pre_issue_distinct_commits"] >= min_distinct_commits)
+        & (support_df["conservative_pre_issue_distinct_files"] >= min_distinct_files)
+        & (support_df["conservative_pre_issue_distinct_days"] >= min_distinct_days)
+    ).astype(int)
+
+    return support_df
+
+def annotate_conservative_pre_issue_selection(evidence_rows, config):
+    if evidence_rows is None:
+        return []
+
+    if isinstance(evidence_rows, pd.DataFrame):
+        input_df = evidence_rows.copy()
+    else:
+        input_rows = list(evidence_rows)
+        if not input_rows:
+            return []
+        input_df = pd.DataFrame(input_rows)
+
+    if input_df.empty:
+        if isinstance(evidence_rows, pd.DataFrame):
+            out_df = input_df.copy()
+            if "selected_for_conservative_pre_issue_fallback" not in out_df.columns:
+                out_df["selected_for_conservative_pre_issue_fallback"] = pd.Series(dtype="int64")
+            return out_df
+        return []
+
+    out = input_df.copy()
+    out["selected_for_conservative_pre_issue_fallback"] = 0
+
+    enabled = bool(get_conservative_pre_issue_option(config, "enable_conservative_pre_issue_fallback", False))
+    if not enabled:
+        return out.to_dict(orient="records") if not isinstance(evidence_rows, pd.DataFrame) else out
+
+    required_columns = ["repo_full_name", "issue_id", "issue_number", "commit_author_contributor_key"]
+    for column_name in required_columns:
+        if column_name not in out.columns:
+            return out.to_dict(orient="records") if not isinstance(evidence_rows, pd.DataFrame) else out
+
+    support_df = build_conservative_pre_issue_support_frame(out, config)
+    if support_df.empty:
+        return out.to_dict(orient="records") if not isinstance(evidence_rows, pd.DataFrame) else out
+
+    support_ok_df = support_df[support_df["conservative_pre_issue_support_ok"] == 1].copy()
+    if support_ok_df.empty:
+        return out.to_dict(orient="records") if not isinstance(evidence_rows, pd.DataFrame) else out
+
+    support_key_columns = ["repo_full_name", "issue_id", "issue_number", "commit_author_contributor_key"]
+    support_ok_df = support_ok_df[support_key_columns].drop_duplicates().copy()
+    support_ok_df["__conservative_pre_issue_selected"] = 1
+
+    out = out.merge(
+        support_ok_df,
+        on=support_key_columns,
+        how="left",
+    )
+
+    out["selected_for_conservative_pre_issue_fallback"] = (
+        pd.to_numeric(out["__conservative_pre_issue_selected"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+    )
+
+    out = out.drop(columns=["__conservative_pre_issue_selected"], errors="ignore")
+
+    exclude_if_any_high_conf_pr = bool(
+        get_conservative_pre_issue_option(
+            config,
+            "conservative_pre_issue_exclude_if_any_high_conf_pr_evidence",
+            False,
+        )
+    )
+
+    if exclude_if_any_high_conf_pr:
+        if "evidence_type" in out.columns and "selected_for_high_confidence_features" in out.columns:
+            temp = out.copy()
+            temp["evidence_type"] = temp["evidence_type"].apply(normalize_value)
+            temp["selected_for_high_confidence_features"] = (
+                pd.to_numeric(temp["selected_for_high_confidence_features"], errors="coerce").fillna(0).astype(int)
+            )
+
+            strict_pr_issue_keys = (
+                temp[
+                    (temp["selected_for_high_confidence_features"] == 1)
+                    & (temp["evidence_type"].isin(["pr_merge", "pr_exact_commit", "pr_head"]))
+                ][["repo_full_name", "issue_id", "issue_number"]]
+                .drop_duplicates()
+                .copy()
+            )
+            strict_pr_issue_keys["__drop_conservative_pre_issue"] = 1
+
+            out = out.merge(
+                strict_pr_issue_keys,
+                on=["repo_full_name", "issue_id", "issue_number"],
+                how="left",
+            )
+            drop_mask = pd.to_numeric(out["__drop_conservative_pre_issue"], errors="coerce").fillna(0).astype(int) == 1
+            out.loc[drop_mask, "selected_for_conservative_pre_issue_fallback"] = 0
+            out = out.drop(columns=["__drop_conservative_pre_issue"], errors="ignore")
+
+    if isinstance(evidence_rows, pd.DataFrame):
+        return out
+    return out.to_dict(orient="records")
 
 def prepare_issue_pr_links_frame(issue_pr_links_df, target_issue_ids, target_issue_numbers):
     if issue_pr_links_df.empty:
@@ -898,42 +1141,26 @@ def combine_issue_ownership_evidence(config, repo_policy, pr_merge_rows, pr_exac
     fallback_rows = filter_fallback_rows_for_selection(config, fallback_rows)
     all_rows = dedupe_evidence_rows(pr_merge_rows + pr_exact_rows + pr_head_rows + fallback_rows)
 
-    selected_rows = []
+    high_conf_selected_rows = []
     if repo_policy == "exact_plus_merge":
-        selected_rows = dedupe_evidence_rows(pr_merge_rows + pr_exact_rows)
-        if not selected_rows and bool(get_ownership_option(config, "allow_file_fallback_when_no_pr_evidence", True)):
-            selected_rows = dedupe_evidence_rows(fallback_rows)
+        high_conf_selected_rows = dedupe_evidence_rows(pr_merge_rows + pr_exact_rows)
     elif repo_policy == "merge_plus_head":
-        selected_rows = dedupe_evidence_rows(pr_merge_rows + pr_head_rows)
-        if not selected_rows and bool(get_ownership_option(config, "allow_file_fallback_when_no_pr_evidence", True)):
-            selected_rows = dedupe_evidence_rows(fallback_rows)
+        high_conf_selected_rows = dedupe_evidence_rows(pr_merge_rows + pr_head_rows)
     elif repo_policy == "merge_first":
-        selected_rows = dedupe_evidence_rows(pr_merge_rows)
-        if not selected_rows:
-            selected_rows = dedupe_evidence_rows(pr_exact_rows)
-        if not selected_rows and bool(get_ownership_option(config, "allow_file_fallback_when_no_pr_evidence", True)):
-            selected_rows = dedupe_evidence_rows(fallback_rows)
+        high_conf_selected_rows = dedupe_evidence_rows(pr_merge_rows)
+        if not high_conf_selected_rows:
+            high_conf_selected_rows = dedupe_evidence_rows(pr_exact_rows)
     elif repo_policy == "exact_first":
-        selected_rows = dedupe_evidence_rows(pr_exact_rows)
-        if not selected_rows:
-            selected_rows = dedupe_evidence_rows(pr_merge_rows)
-        if not selected_rows and bool(get_ownership_option(config, "allow_file_fallback_when_no_pr_evidence", True)):
-            selected_rows = dedupe_evidence_rows(fallback_rows)
+        high_conf_selected_rows = dedupe_evidence_rows(pr_exact_rows)
+        if not high_conf_selected_rows:
+            high_conf_selected_rows = dedupe_evidence_rows(pr_merge_rows)
     else:
-        selected_rows = dedupe_evidence_rows(pr_merge_rows + pr_exact_rows + pr_head_rows)
-        if not selected_rows and bool(get_ownership_option(config, "allow_file_fallback_when_no_pr_evidence", True)):
-            selected_rows = dedupe_evidence_rows(fallback_rows)
+        high_conf_selected_rows = dedupe_evidence_rows(pr_merge_rows + pr_exact_rows + pr_head_rows)
 
-    selected_pre_issue_rows = [
-        row for row in selected_rows
-        if row.get("ownership_time_bucket") == "pre_issue"
-    ]
-    selected_post_issue_rows = [
-        row for row in selected_rows
-        if row.get("ownership_time_bucket") == "post_issue"
-    ]
+    if not high_conf_selected_rows and bool(get_ownership_option(config, "allow_file_fallback_when_no_pr_evidence", True)):
+        high_conf_selected_rows = dedupe_evidence_rows(fallback_rows)
 
-    selected_keys = {
+    high_conf_keys = {
         (
             row.get("repo_full_name"),
             clean_text(row.get("issue_id")),
@@ -943,11 +1170,15 @@ def combine_issue_ownership_evidence(config, repo_policy, pr_merge_rows, pr_exac
             row.get("pr_id"),
             row.get("pr_number"),
         )
-        for row in selected_rows
+        for row in high_conf_selected_rows
     }
 
+    all_rows = annotate_conservative_pre_issue_selection(all_rows, config)
+
+    conservative_selected_rows = []
+    conservative_keys = set()
     for row in all_rows:
-        key = (
+        row_key = (
             row.get("repo_full_name"),
             clean_text(row.get("issue_id")),
             clean_text(row.get("commit_sha")),
@@ -956,9 +1187,76 @@ def combine_issue_ownership_evidence(config, repo_policy, pr_merge_rows, pr_exac
             row.get("pr_id"),
             row.get("pr_number"),
         )
-        row["evidence_selected_for_features"] = 1 if key in selected_keys else 0
+        if int(pd.to_numeric(row.get("selected_for_conservative_pre_issue_fallback"), errors="coerce") or 0) == 1:
+            conservative_selected_rows.append(row)
+            conservative_keys.add(row_key)
 
-    return all_rows, selected_rows, selected_pre_issue_rows, selected_post_issue_rows
+    counts_toward_usable_any = bool(
+        get_conservative_pre_issue_option(
+            config,
+            "conservative_pre_issue_counts_toward_usable_any",
+            True,
+        )
+    )
+
+    if counts_toward_usable_any:
+        any_selected_keys = high_conf_keys.union(conservative_keys)
+    else:
+        any_selected_keys = set(high_conf_keys)
+
+    for row in all_rows:
+        row_key = (
+            row.get("repo_full_name"),
+            clean_text(row.get("issue_id")),
+            clean_text(row.get("commit_sha")),
+            row.get("evidence_type"),
+            clean_text(row.get("file_path")),
+            row.get("pr_id"),
+            row.get("pr_number"),
+        )
+        row["selected_for_high_confidence_features"] = 1 if row_key in high_conf_keys else 0
+        conservative_value = pd.to_numeric(
+            row.get("selected_for_conservative_pre_issue_fallback"),
+            errors="coerce",
+        )
+        row["selected_for_conservative_pre_issue_fallback"] = (
+            int(conservative_value) if pd.notna(conservative_value) else 0
+        )
+        row["selected_for_any_features"] = 1 if row_key in any_selected_keys else 0
+        row["evidence_selected_for_features"] = row["selected_for_any_features"]
+
+    selected_high_conf_pre_issue_rows = [
+        row
+        for row in all_rows
+        if row["selected_for_high_confidence_features"] == 1 and clean_text(row.get("ownership_time_bucket")) == "pre_issue"
+    ]
+    selected_high_conf_post_issue_rows = [
+        row
+        for row in all_rows
+        if row["selected_for_high_confidence_features"] == 1 and clean_text(row.get("ownership_time_bucket")) == "post_issue"
+    ]
+    selected_any_rows = [row for row in all_rows if row["selected_for_any_features"] == 1]
+    selected_any_pre_issue_rows = [
+        row
+        for row in all_rows
+        if row["selected_for_any_features"] == 1 and clean_text(row.get("ownership_time_bucket")) == "pre_issue"
+    ]
+    selected_any_post_issue_rows = [
+        row
+        for row in all_rows
+        if row["selected_for_any_features"] == 1 and clean_text(row.get("ownership_time_bucket")) == "post_issue"
+    ]
+
+    return {
+        "all_evidence_rows": all_rows,
+        "selected_high_confidence_rows": high_conf_selected_rows,
+        "selected_high_confidence_pre_issue_rows": selected_high_conf_pre_issue_rows,
+        "selected_high_confidence_post_issue_rows": selected_high_conf_post_issue_rows,
+        "selected_conservative_pre_issue_rows": conservative_selected_rows,
+        "selected_any_rows": selected_any_rows,
+        "selected_any_pre_issue_rows": selected_any_pre_issue_rows,
+        "selected_any_post_issue_rows": selected_any_post_issue_rows,
+    }
 
 def build_discussion_summary(issue_comments_df):
     if issue_comments_df.empty:
@@ -1122,31 +1420,44 @@ def summarize_issue_evidence_types(selected_rows):
         return "file_fallback"
     return None
 
-def build_issue_feature_row(issue_row, issue_file_payload, all_evidence_rows, selected_evidence_rows, selected_pre_issue_rows, selected_post_issue_rows, contributor_summary_all, contributor_summary_pre, contributor_summary_post, discussion_summary, sparse_thresholds, repo_policy):
-    coverage_flag = resolve_coverage_flag(issue_row, issue_file_payload, selected_evidence_rows, contributor_summary_all, sparse_thresholds)
+def build_issue_feature_row(issue_row, issue_file_payload, all_evidence_rows, selected_high_confidence_rows, selected_high_confidence_pre_issue_rows, selected_high_confidence_post_issue_rows, selected_conservative_pre_issue_rows, selected_any_rows, selected_any_pre_issue_rows, selected_any_post_issue_rows, contributor_summary_high_confidence, contributor_summary_high_confidence_pre, contributor_summary_high_confidence_post, contributor_summary_any, contributor_summary_any_pre, contributor_summary_any_post, discussion_summary, sparse_thresholds, repo_policy):
+    coverage_flag = resolve_coverage_flag(
+        issue_row,
+        issue_file_payload,
+        selected_any_rows,
+        contributor_summary_any,
+        sparse_thresholds,
+    )
+
     all_linked_file_count = int(issue_file_payload.get("linked_file_count_all", 0))
     high_conf_linked_file_count = int(issue_file_payload.get("linked_file_count_high_confidence", 0))
     raw_link_row_count = int(issue_file_payload.get("all_link_row_count", 0))
-    commit_evidence_row_count = int(len(selected_evidence_rows))
-    resolved_evidence_rows = [row for row in selected_evidence_rows if clean_text(row.get("commit_author_contributor_key"))]
-    resolved_commit_evidence_row_count = int(len(resolved_evidence_rows))
-    contributor_count = int(len(contributor_summary_all))
 
-    shares_churn = [row.get("ownership_share_churn") for row in contributor_summary_all if row.get("ownership_share_churn") is not None]
-    shares_commit = [row.get("ownership_share_commit") for row in contributor_summary_all if row.get("ownership_share_commit") is not None]
+    commit_evidence_row_count = int(len(selected_any_rows))
+    resolved_evidence_rows = [row for row in selected_any_rows if clean_text(row.get("commit_author_contributor_key"))]
+    resolved_commit_evidence_row_count = int(len(resolved_evidence_rows))
+    contributor_count_any = int(len(contributor_summary_any))
+    contributor_count_high_conf = int(len(contributor_summary_high_confidence))
+
+    shares_churn = [row.get("ownership_share_churn") for row in contributor_summary_any if row.get("ownership_share_churn") is not None]
+    shares_commit = [row.get("ownership_share_commit") for row in contributor_summary_any if row.get("ownership_share_commit") is not None]
     sorted_churn = sorted(shares_churn, reverse=True)
     sorted_commit = sorted(shares_commit, reverse=True)
 
-    top_owner_row = contributor_summary_all[0] if contributor_summary_all else None
+    top_owner_row = contributor_summary_any[0] if contributor_summary_any else None
     top_owner_key = clean_text(top_owner_row.get("commit_author_contributor_key")) if top_owner_row else None
-    owner_keys = {clean_text(row.get("commit_author_contributor_key")) for row in contributor_summary_all if clean_text(row.get("commit_author_contributor_key"))}
+    owner_keys = {
+        clean_text(row.get("commit_author_contributor_key"))
+        for row in contributor_summary_any
+        if clean_text(row.get("commit_author_contributor_key"))
+    }
     participant_keys = set(discussion_summary.get("participant_keys", set()))
     overlap_keys = owner_keys.intersection(participant_keys)
 
     issue_author_key = clean_text(issue_row.get("issue_author_contributor_key")) or clean_text(issue_row.get("author_login"))
     issue_author_row = None
     if issue_author_key:
-        for row in contributor_summary_all:
+        for row in contributor_summary_any:
             if clean_text(row.get("commit_author_contributor_key")) == issue_author_key:
                 issue_author_row = row
                 break
@@ -1155,106 +1466,83 @@ def build_issue_feature_row(issue_row, issue_file_payload, all_evidence_rows, se
     total_comments_with_resolved_author = int(discussion_summary.get("total_comments_with_resolved_author", 0))
     top_owner_comment_count = discussion_summary.get("comment_counts_by_participant", {}).get(top_owner_key, 0) if top_owner_key else 0
 
-    selected_types = {clean_text(row.get("evidence_type")) for row in selected_evidence_rows if clean_text(row.get("evidence_type"))}
-    any_types = {clean_text(row.get("evidence_type")) for row in all_evidence_rows if clean_text(row.get("evidence_type"))}
-
-    pre_metrics = summarize_contributor_metrics(contributor_summary_pre, discussion_summary)
-    post_metrics = summarize_contributor_metrics(contributor_summary_post, discussion_summary)
-
     row = {
         "repo_id": issue_row.get("repo_id"),
         "repo_full_name": issue_row.get("repo_full_name"),
         "issue_id": issue_row.get("issue_id"),
         "issue_number": issue_row.get("issue_number"),
         "analysis_set": issue_row.get("analysis_set"),
-        "issue_created_at": issue_row.get("created_at"),
-        "issue_closed_at": issue_row.get("closed_at"),
-        "issue_author_contributor_key": issue_author_key,
+        "ownership_coverage_flag": coverage_flag,
         "ownership_policy_used": repo_policy,
-        "ownership_evidence_source_primary": summarize_issue_evidence_types(selected_evidence_rows),
-        "ownership_has_pr_merge_evidence": 1 if "pr_merge" in any_types else 0,
-        "ownership_has_pr_exact_commit_evidence": 1 if "pr_exact_commit" in any_types else 0,
-        "ownership_has_pr_head_evidence": 1 if "pr_head" in any_types else 0,
-        "ownership_has_file_fallback_evidence": 1 if "file_fallback" in any_types else 0,
-        "ownership_usable_high_confidence": 1 if (("pr_merge" in selected_types) or ("pr_exact_commit" in selected_types)) and contributor_count > 0 else 0,
-        "ownership_usable_any": 1 if contributor_count > 0 else 0,
-        "ownership_pr_merge_commit_count": int(sum(1 for row_ in selected_evidence_rows if clean_text(row_.get("evidence_type")) == "pr_merge")),
-        "ownership_pr_exact_commit_count": int(sum(1 for row_ in selected_evidence_rows if clean_text(row_.get("evidence_type")) == "pr_exact_commit")),
-        "ownership_pr_head_commit_count": int(sum(1 for row_ in selected_evidence_rows if clean_text(row_.get("evidence_type")) == "pr_head")),
-        "ownership_file_fallback_commit_count": int(sum(1 for row_ in selected_evidence_rows if clean_text(row_.get("evidence_type")) == "file_fallback")),
         "ownership_has_file_links": 1 if all_linked_file_count > 0 else 0,
+        "ownership_link_row_count": raw_link_row_count,
         "ownership_linked_file_count_all": all_linked_file_count,
         "ownership_linked_file_count_high_confidence": high_conf_linked_file_count,
-        "ownership_issue_file_link_row_count": raw_link_row_count,
         "ownership_commit_evidence_row_count": commit_evidence_row_count,
         "ownership_resolved_commit_evidence_row_count": resolved_commit_evidence_row_count,
-        "ownership_contributor_count": contributor_count,
-        "ownership_has_resolved_commit_authors": 1 if contributor_count > 0 else 0,
-        "ownership_feature_coverage_flag": coverage_flag,
-        "ownership_sparse_evidence_flag": 1 if coverage_flag == "sparse_evidence" else 0,
-        "ownership_top_contributor_share_churn": None,
-        "ownership_top_contributor_share_commit": None,
-        "ownership_entropy_churn": None,
-        "ownership_entropy_commit": None,
-        "ownership_normalized_entropy_churn": None,
-        "ownership_normalized_entropy_commit": None,
-        "ownership_dominant_owner_gap_churn": None,
-        "ownership_dominant_owner_gap_commit": None,
-        "ownership_top_owner_days_since_last_touch": None,
-        "ownership_median_owner_days_since_last_touch": None,
-        "ownership_min_days_since_last_touch": None,
-        "ownership_max_days_since_last_touch": None,
-        "issue_author_is_owner_flag": None,
-        "issue_author_is_top_owner_churn_flag": None,
-        "issue_author_ownership_share_churn": None,
-        "issue_author_ownership_share_commit": None,
-        "issue_author_vs_top_owner_gap_churn": None,
-        "discussion_participant_count": int(discussion_summary.get("discussion_participant_count", 0)),
-        "ownership_discussion_overlap_count": int(len(overlap_keys)),
-        "ownership_discussion_overlap_fraction": None,
-        "discussion_ownership_overlap_fraction": None,
-        "owner_comment_presence_flag": None,
-        "top_owner_commented_flag": None,
-        "owner_comment_share": None,
-        "top_owner_comment_share": None,
-        "ownership_pre_issue_commit_evidence_row_count": int(len(selected_pre_issue_rows)),
-        "ownership_post_issue_commit_evidence_row_count": int(len(selected_post_issue_rows)),
-        "ownership_pre_issue_contributor_count": int(pre_metrics["owner_count"]),
-        "ownership_post_issue_contributor_count": int(post_metrics["owner_count"]),
-        "ownership_pre_issue_top_contributor_share_churn": pre_metrics["top_share_churn"],
-        "ownership_post_issue_top_contributor_share_churn": post_metrics["top_share_churn"],
-        "ownership_pre_issue_entropy_churn": pre_metrics["entropy_churn"],
-        "ownership_post_issue_entropy_churn": post_metrics["entropy_churn"],
-        "ownership_pre_issue_discussion_overlap_fraction": pre_metrics["discussion_overlap_fraction"],
-        "ownership_post_issue_discussion_overlap_fraction": post_metrics["discussion_overlap_fraction"],
-        "ownership_pre_issue_owner_comment_presence_flag": pre_metrics["owner_comment_presence_flag"],
-        "ownership_post_issue_owner_comment_presence_flag": post_metrics["owner_comment_presence_flag"],
+        "ownership_has_resolved_commit_authors": 1 if resolved_commit_evidence_row_count > 0 else 0,
+        "ownership_contributor_count": contributor_count_any,
+        "ownership_high_confidence_contributor_count": contributor_count_high_conf,
+        "ownership_pre_issue_contributor_count": int(len(contributor_summary_any_pre)),
+        "ownership_post_issue_contributor_count": int(len(contributor_summary_any_post)),
+        "ownership_pre_issue_high_confidence_contributor_count": int(len(contributor_summary_high_confidence_pre)),
+        "ownership_post_issue_high_confidence_contributor_count": int(len(contributor_summary_high_confidence_post)),
+        "ownership_pre_issue_conservative_fallback_contributor_count": int(
+            len(
+                {
+                    clean_text(r.get("commit_author_contributor_key"))
+                    for r in selected_conservative_pre_issue_rows
+                    if clean_text(r.get("commit_author_contributor_key"))
+                }
+            )
+        ),
+        "ownership_pre_issue_conservative_fallback_commit_count": int(len(selected_conservative_pre_issue_rows)),
+        "ownership_pre_issue_conservative_fallback_file_count": int(
+            len(
+                {
+                    clean_text(r.get("file_path"))
+                    for r in selected_conservative_pre_issue_rows
+                    if clean_text(r.get("file_path"))
+                }
+            )
+        ),
+        "ownership_usable_high_confidence": 1 if len(selected_high_confidence_rows) > 0 and len(contributor_summary_high_confidence) > 0 else 0,
+        "ownership_usable_any": 1 if len(selected_any_rows) > 0 and len(contributor_summary_any) > 0 else 0,
+        "ownership_usable_any_including_conservative_pre_issue": 1 if len(selected_any_rows) > 0 and len(contributor_summary_any) > 0 else 0,
+        "ownership_usable_pre_issue_conservative_fallback": 1 if len(selected_conservative_pre_issue_rows) > 0 else 0,
+        "ownership_has_selected_conservative_pre_issue_fallback": 1 if len(selected_conservative_pre_issue_rows) > 0 else 0,
+        "ownership_selected_evidence_type": summarize_issue_evidence_types(selected_any_rows),
+        "ownership_selected_high_confidence_evidence_type": summarize_issue_evidence_types(selected_high_confidence_rows),
+        "ownership_selected_any_evidence_type": summarize_issue_evidence_types(selected_any_rows),
+        "ownership_selected_evidence_types": json.dumps(sorted({clean_text(row.get("evidence_type")) for row in selected_any_rows if clean_text(row.get("evidence_type"))})),
+        "ownership_selected_high_confidence_evidence_types": json.dumps(sorted({clean_text(row.get("evidence_type")) for row in selected_high_confidence_rows if clean_text(row.get("evidence_type"))})),
+        "ownership_selected_any_evidence_types": json.dumps(sorted({clean_text(row.get("evidence_type")) for row in selected_any_rows if clean_text(row.get("evidence_type"))})),
+        "ownership_pr_merge_commit_count": int(sum(1 for row in selected_any_rows if clean_text(row.get("evidence_type")) == "pr_merge")),
+        "ownership_pr_exact_commit_count": int(sum(1 for row in selected_any_rows if clean_text(row.get("evidence_type")) == "pr_exact_commit")),
+        "ownership_pr_head_commit_count": int(sum(1 for row in selected_any_rows if clean_text(row.get("evidence_type")) == "pr_head")),
+        "ownership_file_fallback_commit_count": int(sum(1 for row in selected_any_rows if clean_text(row.get("evidence_type")) == "file_fallback")),
+        "ownership_has_pr_merge_evidence": 1 if any(clean_text(row.get("evidence_type")) == "pr_merge" for row in all_evidence_rows) else 0,
+        "ownership_has_pr_exact_commit_evidence": 1 if any(clean_text(row.get("evidence_type")) == "pr_exact_commit" for row in all_evidence_rows) else 0,
+        "ownership_has_pr_head_evidence": 1 if any(clean_text(row.get("evidence_type")) == "pr_head" for row in all_evidence_rows) else 0,
+        "ownership_has_file_fallback_evidence": 1 if any(clean_text(row.get("evidence_type")) == "file_fallback" for row in all_evidence_rows) else 0,
     }
 
-    if coverage_flag in {"no_file_links", "no_commit_matches", "no_resolved_commit_authors", "missing_issue_created_at"}:
-        return row
+    if sorted_churn:
+        row["ownership_top_contributor_share_churn"] = sorted_churn[0]
+        if len(sorted_churn) > 1:
+            row["ownership_second_contributor_share_churn"] = sorted_churn[1]
+    if sorted_commit:
+        row["ownership_top_contributor_share_commit"] = sorted_commit[0]
+        if len(sorted_commit) > 1:
+            row["ownership_second_contributor_share_commit"] = sorted_commit[1]
 
-    row["owner_comment_presence_flag"] = 1 if len(overlap_keys) > 0 else 0
-    row["ownership_top_contributor_share_churn"] = sorted_churn[0] if sorted_churn else None
-    row["ownership_top_contributor_share_commit"] = sorted_commit[0] if sorted_commit else None
     row["ownership_entropy_churn"] = shannon_entropy(shares_churn)
     row["ownership_entropy_commit"] = shannon_entropy(shares_commit)
 
-    if contributor_count > 1:
-        row["ownership_normalized_entropy_churn"] = None if row["ownership_entropy_churn"] is None else row["ownership_entropy_churn"] / math.log(contributor_count)
-        row["ownership_normalized_entropy_commit"] = None if row["ownership_entropy_commit"] is None else row["ownership_entropy_commit"] / math.log(contributor_count)
-
-    if sorted_churn:
-        row["ownership_dominant_owner_gap_churn"] = 1.0 if len(sorted_churn) == 1 else float(sorted_churn[0]) - float(sorted_churn[1])
-    if sorted_commit:
-        row["ownership_dominant_owner_gap_commit"] = 1.0 if len(sorted_commit) == 1 else float(sorted_commit[0]) - float(sorted_commit[1])
-
     days_since_last_touch_values = [
-        value
-        for value in [summary_row.get("days_since_last_touch_before_issue") for summary_row in contributor_summary_all]
-        if value is not None and not pd.isna(value)
+        v for v in [summary_row.get("days_since_last_touch_before_issue") for summary_row in contributor_summary_any]
+        if v is not None and not pd.isna(v)
     ]
-
     if top_owner_row:
         row["ownership_top_owner_days_since_last_touch"] = top_owner_row.get("days_since_last_touch_before_issue")
 
@@ -1269,11 +1557,11 @@ def build_issue_feature_row(issue_row, issue_file_payload, all_evidence_rows, se
         if issue_author_row:
             row["issue_author_ownership_share_churn"] = issue_author_row.get("ownership_share_churn")
             row["issue_author_ownership_share_commit"] = issue_author_row.get("ownership_share_commit")
-            if row["ownership_top_contributor_share_churn"] is not None and row["issue_author_ownership_share_churn"] is not None:
+            if row.get("ownership_top_contributor_share_churn") is not None and row["issue_author_ownership_share_churn"] is not None:
                 row["issue_author_vs_top_owner_gap_churn"] = float(row["ownership_top_contributor_share_churn"]) - float(row["issue_author_ownership_share_churn"])
 
-    if contributor_count > 0:
-        row["ownership_discussion_overlap_fraction"] = safe_divide(len(overlap_keys), contributor_count, default_value=None)
+    if contributor_count_any > 0:
+        row["ownership_discussion_overlap_fraction"] = safe_divide(len(overlap_keys), contributor_count_any, default_value=None)
 
     participant_count = int(discussion_summary.get("discussion_participant_count", 0))
     if participant_count > 0:
@@ -1292,84 +1580,137 @@ def build_issue_feature_row(issue_row, issue_file_payload, all_evidence_rows, se
 def summarize_repo_metrics(result, issue_feature_rows):
     if not issue_feature_rows:
         return result
+
     df = pd.DataFrame(issue_feature_rows)
 
-    result["issues_with_file_links"] = int((df["ownership_has_file_links"] == 1).sum())
-    result["issues_with_high_conf_file_links"] = int((df["ownership_linked_file_count_high_confidence"] > 0).sum())
-    result["issues_with_commit_matches"] = int((df["ownership_commit_evidence_row_count"] > 0).sum())
-    result["issues_with_resolved_commit_authors"] = int((df["ownership_has_resolved_commit_authors"] == 1).sum())
-    result["issues_with_pr_merge_evidence"] = int((df["ownership_has_pr_merge_evidence"] == 1).sum())
-    result["issues_with_pr_exact_commit_evidence"] = int((df["ownership_has_pr_exact_commit_evidence"] == 1).sum())
-    result["issues_with_pr_head_evidence"] = int((df["ownership_has_pr_head_evidence"] == 1).sum())
-    result["issues_with_any_pr_based_evidence"] = int(
-        (
-            (df["ownership_has_pr_merge_evidence"] == 1)
-            | (df["ownership_has_pr_exact_commit_evidence"] == 1)
-            | (df["ownership_has_pr_head_evidence"] == 1)
-        ).sum()
-    )
-    result["issues_with_only_file_fallback_evidence"] = int(
-        (
-            (df["ownership_has_file_fallback_evidence"] == 1)
-            & (df["ownership_has_pr_merge_evidence"] == 0)
-            & (df["ownership_has_pr_exact_commit_evidence"] == 0)
-            & (df["ownership_has_pr_head_evidence"] == 0)
-        ).sum()
-    )
-    result["issues_with_high_confidence_ownership"] = int((df["ownership_usable_high_confidence"] == 1).sum())
+    def positive_count(column_name):
+        if column_name not in df.columns:
+            return 0
+        return int((pd.to_numeric(df[column_name], errors="coerce").fillna(0) > 0).sum())
 
-    result["issues_selected_pr_merge_evidence"] = int((df["ownership_pr_merge_commit_count"] > 0).sum())
-    result["issues_selected_pr_exact_commit_evidence"] = int((df["ownership_pr_exact_commit_count"] > 0).sum())
-    result["issues_selected_pr_head_evidence"] = int((df["ownership_pr_head_commit_count"] > 0).sum())
-    result["issues_selected_file_fallback_evidence"] = int((df["ownership_file_fallback_commit_count"] > 0).sum())
-    result["issues_selected_fallback_only"] = int(
-        (
-            (df["ownership_file_fallback_commit_count"] > 0)
-            & (df["ownership_pr_merge_commit_count"] == 0)
-            & (df["ownership_pr_exact_commit_count"] == 0)
-            & (df["ownership_pr_head_commit_count"] == 0)
-        ).sum()
-    )
+    def mean_numeric(column_name):
+        if column_name not in df.columns:
+            return None
+        series = pd.to_numeric(df[column_name], errors="coerce").dropna()
+        if series.empty:
+            return None
+        return float(series.mean())
 
-    result["issues_with_pre_issue_ownership"] = int((df["ownership_pre_issue_contributor_count"] > 0).sum())
-    result["issues_with_post_issue_ownership"] = int((df["ownership_post_issue_contributor_count"] > 0).sum())
-    result["issues_with_both_pre_and_post_issue_ownership"] = int(
-        ((df["ownership_pre_issue_contributor_count"] > 0) & (df["ownership_post_issue_contributor_count"] > 0)).sum()
-    )
-    result["issues_with_only_pre_issue_ownership"] = int(
-        ((df["ownership_pre_issue_contributor_count"] > 0) & (df["ownership_post_issue_contributor_count"] == 0)).sum()
-    )
-    result["issues_with_only_post_issue_ownership"] = int(
-        ((df["ownership_pre_issue_contributor_count"] == 0) & (df["ownership_post_issue_contributor_count"] > 0)).sum()
-    )
+    def median_numeric(column_name, default_value=0.0):
+        if column_name not in df.columns:
+            return default_value
+        series = pd.to_numeric(df[column_name], errors="coerce").dropna()
+        if series.empty:
+            return default_value
+        return float(series.median())
 
-    result["issues_ok"] = int((df["ownership_feature_coverage_flag"] == "ok").sum())
-    result["issues_sparse"] = int((df["ownership_feature_coverage_flag"] == "sparse_evidence").sum())
-    result["issues_no_file_links"] = int((df["ownership_feature_coverage_flag"] == "no_file_links").sum())
-    result["issues_no_commit_matches"] = int((df["ownership_feature_coverage_flag"] == "no_commit_matches").sum())
-    result["issues_no_resolved_commit_authors"] = int((df["ownership_feature_coverage_flag"] == "no_resolved_commit_authors").sum())
-    result["issues_missing_issue_created_at"] = int((df["ownership_feature_coverage_flag"] == "missing_issue_created_at").sum())
+    def mean_or_none_numeric(column_name):
+        if column_name not in df.columns:
+            return None
+        series = pd.to_numeric(df[column_name], errors="coerce").dropna()
+        if series.empty:
+            return None
+        return mean_or_none(series.tolist())
 
-    result["median_linked_file_count_all"] = take_median(df["ownership_linked_file_count_all"].tolist())
-    result["median_linked_file_count_high_confidence"] = take_median(df["ownership_linked_file_count_high_confidence"].tolist())
-    result["median_commit_evidence_row_count"] = take_median(df["ownership_commit_evidence_row_count"].tolist())
-    result["median_resolved_commit_evidence_row_count"] = take_median(df["ownership_resolved_commit_evidence_row_count"].tolist())
-    result["median_ownership_contributor_count"] = take_median(df["ownership_contributor_count"].tolist())
+    result["target_issues_kept"] = int(len(df))
 
-    issue_author_owner_values = [
-        value for value in df["issue_author_is_owner_flag"].tolist()
-        if value is not None and not pd.isna(value)
-    ]
-    top_owner_commented_values = [
-        value for value in df["top_owner_commented_flag"].tolist()
-        if value is not None and not pd.isna(value)
-    ]
+    result["issues_with_high_confidence_ownership"] = positive_count("ownership_usable_high_confidence")
+    result["issues_ok"] = positive_count("ownership_coverage_flag")
+    if "ownership_coverage_flag" in df.columns:
+        sparse_mask = df["ownership_coverage_flag"].astype(str) == "sparse"
+        ok_mask = df["ownership_coverage_flag"].astype(str) == "ok"
+        result["issues_sparse"] = int(sparse_mask.sum())
+        result["issues_ok"] = int(ok_mask.sum())
 
-    result["mean_ownership_top_contributor_share_churn"] = mean_or_none([value for value in df["ownership_top_contributor_share_churn"].tolist() if value is not None and not pd.isna(value)])
-    result["mean_ownership_entropy_churn"] = mean_or_none([value for value in df["ownership_entropy_churn"].tolist() if value is not None and not pd.isna(value)])
-    result["mean_ownership_discussion_overlap_fraction"] = mean_or_none([value for value in df["ownership_discussion_overlap_fraction"].tolist() if value is not None and not pd.isna(value)])
-    result["share_issue_author_is_owner"] = take_mean(issue_author_owner_values) if issue_author_owner_values else None
-    result["share_top_owner_commented"] = take_mean(top_owner_commented_values) if top_owner_commented_values else None
+    result["issues_with_file_links"] = positive_count("ownership_has_file_links")
+    result["issues_with_high_conf_file_links"] = positive_count("ownership_linked_file_count_high_confidence")
+    result["issues_with_commit_matches"] = positive_count("ownership_commit_evidence_row_count")
+    result["issues_with_resolved_commit_authors"] = positive_count("ownership_has_resolved_commit_authors")
+
+    result["issues_no_file_links"] = int((pd.to_numeric(df.get("ownership_has_file_links", pd.Series(dtype="float64")), errors="coerce").fillna(0) <= 0).sum()) if "ownership_has_file_links" in df.columns else 0
+    result["issues_no_commit_matches"] = int((pd.to_numeric(df.get("ownership_commit_evidence_row_count", pd.Series(dtype="float64")), errors="coerce").fillna(0) <= 0).sum()) if "ownership_commit_evidence_row_count" in df.columns else 0
+    result["issues_no_resolved_commit_authors"] = int((pd.to_numeric(df.get("ownership_has_resolved_commit_authors", pd.Series(dtype="float64")), errors="coerce").fillna(0) <= 0).sum()) if "ownership_has_resolved_commit_authors" in df.columns else 0
+    result["issues_missing_issue_created_at"] = int(df["issue_created_at"].isna().sum()) if "issue_created_at" in df.columns else 0
+
+    result["issues_selected_pr_merge_evidence"] = positive_count("ownership_pr_merge_commit_count")
+    result["issues_selected_pr_exact_commit_evidence"] = positive_count("ownership_pr_exact_commit_count")
+    result["issues_selected_pr_head_evidence"] = positive_count("ownership_pr_head_commit_count")
+    result["issues_selected_file_fallback_evidence"] = positive_count("ownership_file_fallback_commit_count")
+
+    if {"ownership_file_fallback_commit_count", "ownership_pr_merge_commit_count", "ownership_pr_exact_commit_count", "ownership_pr_head_commit_count"}.issubset(df.columns):
+        fallback_only_mask = (
+            (pd.to_numeric(df["ownership_file_fallback_commit_count"], errors="coerce").fillna(0) > 0)
+            & (pd.to_numeric(df["ownership_pr_merge_commit_count"], errors="coerce").fillna(0) <= 0)
+            & (pd.to_numeric(df["ownership_pr_exact_commit_count"], errors="coerce").fillna(0) <= 0)
+            & (pd.to_numeric(df["ownership_pr_head_commit_count"], errors="coerce").fillna(0) <= 0)
+        )
+        result["issues_selected_fallback_only"] = int(fallback_only_mask.sum())
+    else:
+        result["issues_selected_fallback_only"] = 0
+
+    result["issues_with_pre_issue_ownership"] = positive_count("ownership_pre_issue_contributor_count")
+    result["issues_with_post_issue_ownership"] = positive_count("ownership_post_issue_contributor_count")
+    result["issues_with_pre_issue_high_confidence_ownership"] = positive_count("ownership_pre_issue_high_confidence_contributor_count")
+    result["issues_with_post_issue_high_confidence_ownership"] = positive_count("ownership_post_issue_high_confidence_contributor_count")
+    result["issues_with_pre_issue_any_ownership"] = positive_count("ownership_pre_issue_contributor_count")
+    result["issues_with_post_issue_any_ownership"] = positive_count("ownership_post_issue_contributor_count")
+    result["issues_with_any_conservative_pre_issue_fallback"] = positive_count("ownership_has_selected_conservative_pre_issue_fallback")
+
+    if {"ownership_pre_issue_contributor_count", "ownership_post_issue_contributor_count"}.issubset(df.columns):
+        pre_any = pd.to_numeric(df["ownership_pre_issue_contributor_count"], errors="coerce").fillna(0) > 0
+        post_any = pd.to_numeric(df["ownership_post_issue_contributor_count"], errors="coerce").fillna(0) > 0
+        result["issues_with_both_pre_and_post_issue_ownership"] = int((pre_any & post_any).sum())
+        result["issues_with_only_pre_issue_ownership"] = int((pre_any & (~post_any)).sum())
+        result["issues_with_only_post_issue_ownership"] = int(((~pre_any) & post_any).sum())
+    else:
+        result["issues_with_both_pre_and_post_issue_ownership"] = 0
+        result["issues_with_only_pre_issue_ownership"] = 0
+        result["issues_with_only_post_issue_ownership"] = 0
+
+    if {"ownership_has_selected_conservative_pre_issue_fallback", "ownership_pre_issue_high_confidence_contributor_count"}.issubset(df.columns):
+        conservative_any = pd.to_numeric(df["ownership_has_selected_conservative_pre_issue_fallback"], errors="coerce").fillna(0) > 0
+        pre_high = pd.to_numeric(df["ownership_pre_issue_high_confidence_contributor_count"], errors="coerce").fillna(0) > 0
+        result["issues_with_pre_issue_conservative_fallback_only"] = int((conservative_any & (~pre_high)).sum())
+        result["issues_with_pre_issue_any_but_not_high_confidence"] = int((pd.to_numeric(df["ownership_pre_issue_contributor_count"], errors="coerce").fillna(0) > 0 & (~pre_high)).sum())
+    else:
+        result["issues_with_pre_issue_conservative_fallback_only"] = 0
+        result["issues_with_pre_issue_any_but_not_high_confidence"] = 0
+
+    result["issues_selected_for_high_confidence_features"] = positive_count("ownership_usable_high_confidence")
+    result["issues_selected_for_any_features"] = positive_count("ownership_usable_any_including_conservative_pre_issue")
+    result["issues_selected_for_conservative_pre_issue_fallback"] = positive_count("ownership_has_selected_conservative_pre_issue_fallback")
+
+    if "ownership_pre_issue_high_confidence_contributor_count" in df.columns:
+        result["total_selected_high_confidence_pre_issue_rows"] = int(pd.to_numeric(df["ownership_pre_issue_high_confidence_contributor_count"], errors="coerce").fillna(0).sum())
+    else:
+        result["total_selected_high_confidence_pre_issue_rows"] = 0
+
+    if "ownership_pre_issue_contributor_count" in df.columns:
+        result["total_selected_any_pre_issue_rows"] = int(pd.to_numeric(df["ownership_pre_issue_contributor_count"], errors="coerce").fillna(0).sum())
+    else:
+        result["total_selected_any_pre_issue_rows"] = 0
+
+    if "ownership_pre_issue_conservative_fallback_commit_count" in df.columns:
+        result["total_selected_conservative_pre_issue_rows"] = int(pd.to_numeric(df["ownership_pre_issue_conservative_fallback_commit_count"], errors="coerce").fillna(0).sum())
+    else:
+        result["total_selected_conservative_pre_issue_rows"] = 0
+
+    result["mean_pre_issue_high_confidence_contributor_count"] = mean_numeric("ownership_pre_issue_high_confidence_contributor_count")
+    result["mean_pre_issue_any_contributor_count"] = mean_numeric("ownership_pre_issue_contributor_count")
+    result["mean_pre_issue_conservative_fallback_contributor_count"] = mean_numeric("ownership_pre_issue_conservative_fallback_contributor_count")
+
+    result["median_linked_file_count_all"] = median_numeric("ownership_linked_file_count_all", default_value=0.0)
+    result["median_linked_file_count_high_confidence"] = median_numeric("ownership_linked_file_count_high_confidence", default_value=0.0)
+    result["median_commit_evidence_row_count"] = median_numeric("ownership_commit_evidence_row_count", default_value=0.0)
+    result["median_resolved_commit_evidence_row_count"] = median_numeric("ownership_resolved_commit_evidence_row_count", default_value=0.0)
+    result["median_ownership_contributor_count"] = median_numeric("ownership_contributor_count", default_value=0.0)
+
+    result["mean_ownership_top_contributor_share_churn"] = mean_or_none_numeric("ownership_top_contributor_share_churn")
+    result["mean_ownership_entropy_churn"] = mean_or_none_numeric("ownership_entropy_churn")
+    result["mean_ownership_discussion_overlap_fraction"] = mean_or_none_numeric("ownership_discussion_overlap_fraction")
+    result["share_issue_author_is_owner"] = mean_or_none_numeric("issue_author_is_owner_flag")
+    result["share_top_owner_commented"] = mean_or_none_numeric("top_owner_commented_flag")
+
     return result
 
 def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, stage_paths, overlap_lookup):
@@ -1474,7 +1815,7 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
         pr_head_rows = build_issue_pr_head_evidence(issue_row, pr_maps)
         fallback_rows = build_issue_file_commit_evidence(issue_row, issue_file_payload, commit_file_index, commits_lookup)
 
-        all_evidence_rows, selected_evidence_rows, selected_pre_issue_rows, selected_post_issue_rows = combine_issue_ownership_evidence(
+        evidence_payload = combine_issue_ownership_evidence(
             config,
             repo_policy,
             pr_merge_rows,
@@ -1483,20 +1824,42 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
             fallback_rows,
         )
 
-        contributor_summary_all = compute_contributor_summary(issue_row, selected_evidence_rows)
-        contributor_summary_pre = compute_contributor_summary(issue_row, selected_pre_issue_rows)
-        contributor_summary_post = compute_contributor_summary(issue_row, selected_post_issue_rows)
+        all_evidence_rows = evidence_payload["all_evidence_rows"]
+        selected_high_confidence_rows = evidence_payload["selected_high_confidence_rows"]
+        selected_high_confidence_pre_issue_rows = evidence_payload["selected_high_confidence_pre_issue_rows"]
+        selected_high_confidence_post_issue_rows = evidence_payload["selected_high_confidence_post_issue_rows"]
+        selected_conservative_pre_issue_rows = evidence_payload["selected_conservative_pre_issue_rows"]
+        selected_any_rows = evidence_payload["selected_any_rows"]
+        selected_any_pre_issue_rows = evidence_payload["selected_any_pre_issue_rows"]
+        selected_any_post_issue_rows = evidence_payload["selected_any_post_issue_rows"]
+
+        contributor_summary_high_confidence = compute_contributor_summary(issue_row, selected_high_confidence_rows)
+        contributor_summary_high_confidence_pre = compute_contributor_summary(issue_row,
+                                                                              selected_high_confidence_pre_issue_rows)
+        contributor_summary_high_confidence_post = compute_contributor_summary(issue_row,
+                                                                               selected_high_confidence_post_issue_rows)
+
+        contributor_summary_any = compute_contributor_summary(issue_row, selected_any_rows)
+        contributor_summary_any_pre = compute_contributor_summary(issue_row, selected_any_pre_issue_rows)
+        contributor_summary_any_post = compute_contributor_summary(issue_row, selected_any_post_issue_rows)
 
         issue_feature_row = build_issue_feature_row(
             issue_row,
             issue_file_payload,
             all_evidence_rows,
-            selected_evidence_rows,
-            selected_pre_issue_rows,
-            selected_post_issue_rows,
-            contributor_summary_all,
-            contributor_summary_pre,
-            contributor_summary_post,
+            selected_high_confidence_rows,
+            selected_high_confidence_pre_issue_rows,
+            selected_high_confidence_post_issue_rows,
+            selected_conservative_pre_issue_rows,
+            selected_any_rows,
+            selected_any_pre_issue_rows,
+            selected_any_post_issue_rows,
+            contributor_summary_high_confidence,
+            contributor_summary_high_confidence_pre,
+            contributor_summary_high_confidence_post,
+            contributor_summary_any,
+            contributor_summary_any_pre,
+            contributor_summary_any_post,
             discussion_summary,
             sparse_thresholds,
             repo_policy,

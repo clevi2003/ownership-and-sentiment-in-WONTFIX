@@ -387,6 +387,26 @@ class IdentityResolutionConfig:
     pr_commit_bridge_require_bijective: bool
 
 @dataclass
+class FuzzyIdentityResolutionConfig:
+    enabled: bool = False
+    max_repos_per_run: int = 5
+    resume_mode: str = "fresh"
+    write_batch_size: int = 5000
+    require_same_repo: bool = True
+    allow_commit_discussion_fuzzy_links: bool = True
+    allow_name_similarity_links: bool = True
+    allow_email_localpart_similarity_links: bool = True
+    min_name_similarity_score: float = 0.94
+    min_email_localpart_similarity_score: float = 0.95
+    min_pair_score_for_merge: float = 0.90
+    min_pair_score_for_strong_merge: float = 1.20
+    require_multi_signal_for_non_exact_merge: bool = True
+    require_structural_signal_for_name_based_merge: bool = True
+    max_cluster_size_before_flag: int = 6
+    block_bot_merges: bool = True
+    write_pair_audit_table: bool = True
+
+@dataclass
 class BotHandlingConfig:
     detect_bots: bool
     bot_name_patterns: list
@@ -508,7 +528,7 @@ class AnalysisDatasetConfig:
 @dataclass
 class OwnershipFeaturesConfig:
     enabled: bool = True
-    max_repos_per_run = None
+    max_repos_per_run: int = None
     resume_mode: str = "fresh"
     write_batch_size: int = 5000
     merge_sha_min_present_rate: float = 0.80
@@ -524,6 +544,16 @@ class OwnershipFeaturesConfig:
     min_resolved_commit_rows_for_ok: int = 1
     min_contributors_for_ok: int = 1
     write_evidence_table: bool = True
+
+    enable_conservative_pre_issue_fallback: bool = False
+    conservative_pre_issue_allowed_sources: list = field(default_factory=lambda: ["file_fallback"])
+    conservative_pre_issue_allowed_confidence_levels: list = field(default_factory=lambda: ["high"])
+    conservative_pre_issue_min_distinct_commits: int = 2
+    conservative_pre_issue_min_distinct_files: int = 1
+    conservative_pre_issue_min_distinct_days: int = 1
+    conservative_pre_issue_require_resolved_author: bool = True
+    conservative_pre_issue_exclude_if_any_high_conf_pr_evidence: bool = False
+    conservative_pre_issue_counts_toward_usable_any: bool = True
 
 @dataclass
 class StudyConfig:
@@ -551,6 +581,7 @@ class StudyConfig:
     rq_scoping: RqScopingConfig
     ownership_features: OwnershipFeaturesConfig
     analysis_dataset: AnalysisDatasetConfig
+    fuzzy_identity_resolution: FuzzyIdentityResolutionConfig
 
 def _parse_study(data):
     section = "study"
@@ -569,21 +600,69 @@ def _parse_ownership_features(data):
     d = _require_dict(_get_optional(data, "ownership_features", {}), section)
     return OwnershipFeaturesConfig(
         enabled=_get_optional(d, "enabled", True),
+        max_repos_per_run=_get_optional(d, "max_repos_per_run", None),
         resume_mode=_get_optional(d, "resume_mode", "fresh"),
-        write_batch_size=_get_optional(d, "write_batch_size", 5000),
+        write_batch_size=int(_get_optional(d, "write_batch_size", 5000)),
         merge_sha_min_present_rate=float(_get_optional(d, "merge_sha_min_present_rate", 0.80)),
         exact_pr_commit_min_overlap_rate=float(_get_optional(d, "exact_pr_commit_min_overlap_rate", 0.50)),
         head_sha_min_present_rate=float(_get_optional(d, "head_sha_min_present_rate", 0.50)),
         allow_file_fallback_when_no_pr_evidence=_get_optional(d, "allow_file_fallback_when_no_pr_evidence", True),
         prefer_pr_based_evidence_over_file_fallback=_get_optional(d, "prefer_pr_based_evidence_over_file_fallback", True),
-        allow_fallback_sources=_require_list(_get_optional(d, "allow_fallback_sources", ["pr_commit_chain"]), "ownership_features.allow_fallback_sources"),
-        allow_fallback_confidence_levels=_require_list(_get_optional(d, "allow_fallback_confidence_levels", ["high"]), "ownership_features.allow_fallback_confidence_levels"),
-        high_confidence_issue_file_levels=_require_list(_get_optional(d, "high_confidence_issue_file_levels", ["high"]), "ownership_features.high_confidence_issue_file_levels"),
+        allow_fallback_sources=_require_list(
+            _get_optional(d, "allow_fallback_sources", ["pr_commit_chain"]),
+            "ownership_features.allow_fallback_sources",
+        ),
+        allow_fallback_confidence_levels=_require_list(
+            _get_optional(d, "allow_fallback_confidence_levels", ["high"]),
+            "ownership_features.allow_fallback_confidence_levels",
+        ),
+        high_confidence_issue_file_levels=_require_list(
+            _get_optional(d, "high_confidence_issue_file_levels", ["high"]),
+            "ownership_features.high_confidence_issue_file_levels",
+        ),
         exclude_bots_from_ownership=_get_optional(d, "exclude_bots_from_ownership", True),
         min_linked_files_for_ok=int(_get_optional(d, "min_linked_files_for_ok", 1)),
         min_resolved_commit_rows_for_ok=int(_get_optional(d, "min_resolved_commit_rows_for_ok", 1)),
         min_contributors_for_ok=int(_get_optional(d, "min_contributors_for_ok", 1)),
         write_evidence_table=_get_optional(d, "write_evidence_table", True),
+
+        enable_conservative_pre_issue_fallback=_get_optional(
+            d,
+            "enable_conservative_pre_issue_fallback",
+            False,
+        ),
+        conservative_pre_issue_allowed_sources=_require_list(
+            _get_optional(d, "conservative_pre_issue_allowed_sources", ["file_fallback"]),
+            "ownership_features.conservative_pre_issue_allowed_sources",
+        ),
+        conservative_pre_issue_allowed_confidence_levels=_require_list(
+            _get_optional(d, "conservative_pre_issue_allowed_confidence_levels", ["high"]),
+            "ownership_features.conservative_pre_issue_allowed_confidence_levels",
+        ),
+        conservative_pre_issue_min_distinct_commits=int(
+            _get_optional(d, "conservative_pre_issue_min_distinct_commits", 2)
+        ),
+        conservative_pre_issue_min_distinct_files=int(
+            _get_optional(d, "conservative_pre_issue_min_distinct_files", 1)
+        ),
+        conservative_pre_issue_min_distinct_days=int(
+            _get_optional(d, "conservative_pre_issue_min_distinct_days", 1)
+        ),
+        conservative_pre_issue_require_resolved_author=_get_optional(
+            d,
+            "conservative_pre_issue_require_resolved_author",
+            True,
+        ),
+        conservative_pre_issue_exclude_if_any_high_conf_pr_evidence=_get_optional(
+            d,
+            "conservative_pre_issue_exclude_if_any_high_conf_pr_evidence",
+            False,
+        ),
+        conservative_pre_issue_counts_toward_usable_any=_get_optional(
+            d,
+            "conservative_pre_issue_counts_toward_usable_any",
+            True,
+        ),
     )
 
 def _parse_paths(data):
@@ -1010,6 +1089,29 @@ def _parse_identity_resolution(data):
         pr_commit_bridge_require_bijective=_get_optional(d, "pr_commit_bridge_require_bijective", True),
     )
 
+def _parse_fuzzy_identity_resolution(data):
+    section = "fuzzy_identity_resolution"
+    d = _require_dict(_get_optional(data, "fuzzy_identity_resolution", {}), section)
+    return FuzzyIdentityResolutionConfig(
+        enabled=_get_optional(d, "enabled", False),
+        max_repos_per_run=int(_get_optional(d, "max_repos_per_run", 5)),
+        resume_mode=_get_optional(d, "resume_mode", "fresh"),
+        write_batch_size=int(_get_optional(d, "write_batch_size", 5000)),
+        require_same_repo=_get_optional(d, "require_same_repo", True),
+        allow_commit_discussion_fuzzy_links=_get_optional(d, "allow_commit_discussion_fuzzy_links", True),
+        allow_name_similarity_links=_get_optional(d, "allow_name_similarity_links", True),
+        allow_email_localpart_similarity_links=_get_optional(d, "allow_email_localpart_similarity_links", True),
+        min_name_similarity_score=float(_get_optional(d, "min_name_similarity_score", 0.94)),
+        min_email_localpart_similarity_score=float(_get_optional(d, "min_email_localpart_similarity_score", 0.95)),
+        min_pair_score_for_merge=float(_get_optional(d, "min_pair_score_for_merge", 0.90)),
+        min_pair_score_for_strong_merge=float(_get_optional(d, "min_pair_score_for_strong_merge", 1.20)),
+        require_multi_signal_for_non_exact_merge=_get_optional(d, "require_multi_signal_for_non_exact_merge", True),
+        require_structural_signal_for_name_based_merge=_get_optional(d, "require_structural_signal_for_name_based_merge", True),
+        max_cluster_size_before_flag=int(_get_optional(d, "max_cluster_size_before_flag", 6)),
+        block_bot_merges=_get_optional(d, "block_bot_merges", True),
+        write_pair_audit_table=_get_optional(d, "write_pair_audit_table", True),
+    )
+
 def _parse_bot_handling(data):
     section = "bot_handling"
     d = _require_dict(_get_required(data, "bot_handling", "root"), section)
@@ -1191,6 +1293,7 @@ def load_study_config(config_path):
         linkage=_parse_linkage(raw_data),
         issue_file_linking=_parse_issue_file_linking_runtime(raw_data),
         identity_resolution=_parse_identity_resolution(raw_data),
+        fuzzy_identity_resolution=_parse_fuzzy_identity_resolution(raw_data),
         bot_handling=_parse_bot_handling(raw_data),
         storage=_parse_storage(raw_data),
         outputs=_parse_outputs(raw_data),
@@ -1399,7 +1502,6 @@ def _ensure_directory(path_str):
         path = path.parent
 
     path.mkdir(parents=True, exist_ok=True)
-
 
 def ensure_project_directories(config):
     # required path roots must be made
