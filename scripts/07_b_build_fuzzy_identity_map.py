@@ -276,13 +276,17 @@ def new_repo_result(repo_full_name, repo_id=None):
         "candidate_pairs_from_email_localpart_similarity": 0,
         "candidate_pairs_from_pr_bridge": 0,
         "candidate_pairs_from_discussion_bridge": 0,
-        "candidate_pairs_from_discussion_bridge_three_plus_shared_issues": 0,
+        "candidate_pairs_from_discussion_bridge_three_plus_shared_issues_plus_name_similarity": 0,
+        "candidate_pairs_from_discussion_bridge_three_plus_shared_issues_plus_email_localpart_similarity": 0,
+        "candidate_pairs_from_discussion_bridge_three_plus_shared_issues_plus_pr_bridge": 0,
         "candidate_pairs_from_discussion_bridge_two_shared_issues_plus_name_similarity": 0,
         "candidate_pairs_from_discussion_bridge_two_shared_issues_plus_email_localpart_similarity": 0,
         "candidate_pairs_from_discussion_bridge_two_shared_issues_plus_pr_bridge": 0,
         "candidate_pairs_from_discussion_bridge_plus_name_similarity": 0,
         "candidate_pairs_from_discussion_bridge_plus_email_localpart_similarity": 0,
         "candidate_pairs_from_discussion_bridge_plus_pr_bridge": 0,
+        "clusters_reverted_ambiguous": 0,
+        "strict_rows_reverted_from_ambiguous_clusters": 0,
         "error_message": "",
     }
 
@@ -798,12 +802,18 @@ def should_admit_discussion_bridge_candidate(left_activity, right_activity, pr_s
     if not has_discussion_signal:
         return False, None
 
-    if shared_issue_count >= 3:
-        return True, "discussion_three_plus_shared_issues"
-
     has_name_similarity, _ = pair_has_name_similarity(left_activity, right_activity, config)
     has_localpart_similarity, _ = pair_has_email_localpart_similarity(left_activity, right_activity, config)
     has_pr_bridge = bool(pr_stats.get("overlap_logins"))
+
+    if shared_issue_count >= 3:
+        if has_pr_bridge:
+            return True, "discussion_three_plus_shared_issues_plus_pr_bridge"
+        if has_name_similarity:
+            return True, "discussion_three_plus_shared_issues_plus_name_similarity"
+        if has_localpart_similarity:
+            return True, "discussion_three_plus_shared_issues_plus_email_localpart_similarity"
+        return False, None
 
     if shared_issue_count >= 2:
         if has_pr_bridge:
@@ -935,13 +945,16 @@ def build_candidate_pairs(identity_df, activity_sets, config, result):
                 result["candidate_pairs_from_pr_bridge"] += plausible_reason_flags["pr_bridge"]
                 result["candidate_pairs_from_discussion_bridge"] += plausible_reason_flags["discussion_bridge"]
 
-                if discussion_bridge_reason == "discussion_three_plus_shared_issues":
-                    result["candidate_pairs_from_discussion_bridge_three_plus_shared_issues"] += 1
+                if discussion_bridge_reason == "discussion_three_plus_shared_issues_plus_name_similarity":
+                    result["candidate_pairs_from_discussion_bridge_three_plus_shared_issues_plus_name_similarity"] += 1
+                elif discussion_bridge_reason == "discussion_three_plus_shared_issues_plus_email_localpart_similarity":
+                    result["candidate_pairs_from_discussion_bridge_three_plus_shared_issues_plus_email_localpart_similarity"] += 1
+                elif discussion_bridge_reason == "discussion_three_plus_shared_issues_plus_pr_bridge":
+                    result["candidate_pairs_from_discussion_bridge_three_plus_shared_issues_plus_pr_bridge"] += 1
                 elif discussion_bridge_reason == "discussion_two_shared_issues_plus_name_similarity":
                     result["candidate_pairs_from_discussion_bridge_two_shared_issues_plus_name_similarity"] += 1
                 elif discussion_bridge_reason == "discussion_two_shared_issues_plus_email_localpart_similarity":
-                    result[
-                        "candidate_pairs_from_discussion_bridge_two_shared_issues_plus_email_localpart_similarity"] += 1
+                    result["candidate_pairs_from_discussion_bridge_two_shared_issues_plus_email_localpart_similarity"] += 1
                 elif discussion_bridge_reason == "discussion_two_shared_issues_plus_pr_bridge":
                     result["candidate_pairs_from_discussion_bridge_two_shared_issues_plus_pr_bridge"] += 1
                 elif discussion_bridge_reason == "discussion_plus_name_similarity":
@@ -1175,6 +1188,26 @@ def cluster_fuzzy_graph(identity_df, accepted_edges):
         clusters.setdefault(root, []).append(key)
     return clusters
 
+def revert_ambiguous_clusters(clusters, config, result):
+    max_cluster_size_before_flag = int(get_fuzzy_option(config, "max_cluster_size_before_flag", 6))
+    reverted_clusters = {}
+
+    for contributor_keys in clusters.values():
+        cluster_members = sorted(contributor_keys)
+        cluster_size = int(len(cluster_members))
+
+        if cluster_size > max_cluster_size_before_flag:
+            result["clusters_reverted_ambiguous"] += 1
+            result["strict_rows_reverted_from_ambiguous_clusters"] += cluster_size
+            for contributor_key in cluster_members:
+                reverted_clusters[contributor_key] = [contributor_key]
+        else:
+            root_key = cluster_members[0] if cluster_members else None
+            if root_key is not None:
+                reverted_clusters[root_key] = cluster_members
+
+    return reverted_clusters
+
 def build_fuzzy_cluster_rows(repo_full_name, repo_id, clusters, identity_df, activity_sets, config, result):
     rows = []
     max_cluster_size_before_flag = int(get_fuzzy_option(config, "max_cluster_size_before_flag", 6))
@@ -1402,8 +1435,8 @@ def process_repo(config, logger, repo_row):
             })
 
     write_pair_audit_table(config, repo_full_name, audit_rows)
-
     clusters = cluster_fuzzy_graph(strict_identity_df, accepted_edges)
+    clusters = revert_ambiguous_clusters(clusters, config, result)
     fuzzy_cluster_df, contributor_to_cluster_key = build_fuzzy_cluster_rows(
         repo_full_name,
         repo_row.get("repo_id"),

@@ -23,6 +23,7 @@ final/
 tmp/
 temp/
 *.tmp
+scripts/helper_scripts/temp*
 
 # Parquet / local exports
 *.parquet

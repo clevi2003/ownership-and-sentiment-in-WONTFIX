@@ -18,15 +18,43 @@ from utils.io_helpers import clean_text, collect_repo_part_files, has_real_value
 from utils.chunk_writers import OwnershipFeatureRepoChunkWriter
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
-LOG_FILENAME = "11_build_issue_ownership_features.log"
-CHECKPOINT_PREFIX = "11_build_issue_ownership_features"
-BATCH_FOLDER_NAME = "ownership_features"
-RAW_FOLDER_NAME = "ownership_features"
 CONFIDENCE_RANK = {"very_high": 5, "highest": 5, "high": 4, "medium": 3, "moderate": 3, "low": 2, "very_low": 1, "unknown": 0, None: 0}
 PR_EVIDENCE_CONFIDENCE = {"pr_merge": "high", "pr_exact_commit": "high", "pr_head": "moderate", "file_fallback": "low"}
 
 
+def get_ownership_identity_mode(config):
+    mode = get_stage_option(config, "identity_resolution", "attachment_identity_mode", "strict")
+    mode = str(mode).strip().lower()
+    if mode not in {"strict", "fuzzy"}:
+        raise ValueError(
+            f"identity_resolution.attachment_identity_mode must be 'strict' or 'fuzzy', got: {mode}"
+        )
+    return mode
+
+def get_ownership_runtime_names(config):
+    mode = get_ownership_identity_mode(config)
+    if mode == "fuzzy":
+        return {
+            "log_filename": "11_build_issue_ownership_features_fuzzy.log",
+            "checkpoint_prefix": "11_build_issue_ownership_features_fuzzy",
+            "batch_folder_name": "ownership_features_fuzzy",
+            "raw_folder_name": "ownership_features_fuzzy",
+            "summary_filename": "11_build_issue_ownership_features_fuzzy_summary.csv",
+            "run_manifest_filename": "11_build_issue_ownership_features_fuzzy_run_manifest.json",
+        }
+
+    return {
+        "log_filename": "11_build_issue_ownership_features.log",
+        "checkpoint_prefix": "11_build_issue_ownership_features",
+        "batch_folder_name": "ownership_features",
+        "raw_folder_name": "ownership_features",
+        "summary_filename": "11_build_issue_ownership_features_summary.csv",
+        "run_manifest_filename": "11_build_issue_ownership_features_run_manifest.json",
+    }
+
 def setup_logger(config):
+    runtime_names = get_ownership_runtime_names(config)
+
     logger = logging.getLogger("build_issue_ownership_features")
     logger.setLevel(getattr(logging, config.logging.level.upper(), logging.INFO))
     logger.handlers.clear()
@@ -38,7 +66,7 @@ def setup_logger(config):
     if config.logging.log_to_file:
         log_dir = Path(config.logging.qa_log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_dir / LOG_FILENAME, encoding="utf-8")
+        file_handler = logging.FileHandler(log_dir / runtime_names["log_filename"], encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
     return logger
@@ -59,24 +87,45 @@ def get_conservative_pre_issue_option(config, field_name, default_value):
 
 def get_stage_paths(config):
     outputs = getattr(config, "outputs", None)
-    issue_output_path = getattr(outputs, "issue_ownership_features_table", None)
-    if not issue_output_path:
-        issue_output_path = "./data/features/ownership/issue_ownership_features.parquet"
-    evidence_output_path = getattr(outputs, "issue_file_ownership_evidence_table", None)
-    if not evidence_output_path:
-        evidence_output_path = "./data/features/ownership/issue_file_ownership_evidence.parquet"
-    qa_summary_path = getattr(outputs, "ownership_feature_qa_summary_csv", None)
-    if not qa_summary_path:
-        qa_summary_path = "./logs/qa/issue_ownership_feature_qa_summary.csv"
+    mode = get_ownership_identity_mode(config)
+    runtime_names = get_ownership_runtime_names(config)
+
+    if mode == "fuzzy":
+        issue_output_path = getattr(outputs, "issue_ownership_features_table_fuzzy", None)
+        if not issue_output_path:
+            issue_output_path = "./data/features/ownership_fuzzy/issue_ownership_features_fuzzy.parquet"
+
+        evidence_output_path = getattr(outputs, "issue_file_ownership_evidence_table_fuzzy", None)
+        if not evidence_output_path:
+            evidence_output_path = "./data/features/ownership_fuzzy/issue_file_ownership_evidence_fuzzy.parquet"
+
+        qa_summary_path = getattr(outputs, "ownership_feature_qa_summary_csv_fuzzy", None)
+        if not qa_summary_path:
+            qa_summary_path = "./logs/qa/issue_ownership_feature_qa_summary_fuzzy.csv"
+    else:
+        issue_output_path = getattr(outputs, "issue_ownership_features_table", None)
+        if not issue_output_path:
+            issue_output_path = "./data/features/ownership/issue_ownership_features.parquet"
+
+        evidence_output_path = getattr(outputs, "issue_file_ownership_evidence_table", None)
+        if not evidence_output_path:
+            evidence_output_path = "./data/features/ownership/issue_file_ownership_evidence.parquet"
+
+        qa_summary_path = getattr(outputs, "ownership_feature_qa_summary_csv", None)
+        if not qa_summary_path:
+            qa_summary_path = "./logs/qa/issue_ownership_feature_qa_summary.csv"
+
     overlap_qa_summary_path = getattr(outputs, "pr_commit_overlap_qa_summary_csv", None)
     if not overlap_qa_summary_path:
         overlap_qa_summary_path = "./logs/qa/pr_commit_overlap_qa_summary.csv"
+
     return {
+        "identity_resolution_mode": mode,
         "issue_output_path": Path(issue_output_path),
         "evidence_output_path": Path(evidence_output_path),
         "qa_summary_path": Path(qa_summary_path),
         "overlap_qa_summary_path": Path(overlap_qa_summary_path),
-        "run_manifest_path": Path(config.logging.qa_log_dir) / "11_build_issue_ownership_features_run_manifest.json",
+        "run_manifest_path": Path(config.logging.qa_log_dir) / runtime_names["run_manifest_filename"],
     }
 
 def normalize_issue_set_columns(df):
@@ -139,14 +188,27 @@ def build_target_issue_lookup(config):
 
 def load_stage_inputs_for_repo(config, repo_full_name):
     merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
-    issues_df = load_table(config.outputs.issues_resolved_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
-    comments_df = load_table(config.outputs.issue_comments_resolved_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
+    mode = get_ownership_identity_mode(config)
+
+    if mode == "fuzzy":
+        issues_resolved_path = getattr(config.outputs, "issues_resolved_table_fuzzy")
+        issue_comments_resolved_path = getattr(config.outputs, "issue_comments_resolved_table_fuzzy")
+        commits_resolved_path = getattr(config.outputs, "commits_resolved_table_fuzzy")
+    else:
+        issues_resolved_path = config.outputs.issues_resolved_table
+        issue_comments_resolved_path = config.outputs.issue_comments_resolved_table
+        commits_resolved_path = config.outputs.commits_resolved_table
+
+    issues_df = load_table(issues_resolved_path, repo_full_name=repo_full_name, merge_mode=merge_mode)
+    comments_df = load_table(issue_comments_resolved_path, repo_full_name=repo_full_name, merge_mode=merge_mode)
     issue_pr_links_df = load_table(config.outputs.issue_pr_links_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
     pull_requests_df = load_table(config.outputs.pull_requests_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
     pr_commit_links_df = load_table(config.outputs.pr_commit_links_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
     issue_file_links_df = load_table(config.outputs.issue_file_links_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
     commit_files_df = load_table(config.outputs.commit_files_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
-    commits_resolved_df = load_table(config.outputs.commits_resolved_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
+    commits_df = load_table(config.outputs.commits_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
+    commits_resolved_df = load_table(commits_resolved_path, repo_full_name=repo_full_name, merge_mode=merge_mode)
+
     return {
         "issues_resolved": repo_filter(issues_df, repo_full_name),
         "issue_comments_resolved": repo_filter(comments_df, repo_full_name),
@@ -155,6 +217,7 @@ def load_stage_inputs_for_repo(config, repo_full_name):
         "pr_commit_links": repo_filter(pr_commit_links_df, repo_full_name),
         "issue_file_links": repo_filter(issue_file_links_df, repo_full_name),
         "commit_files": repo_filter(commit_files_df, repo_full_name),
+        "commits": repo_filter(commits_df, repo_full_name),
         "commits_resolved": repo_filter(commits_resolved_df, repo_full_name),
     }
 
@@ -162,6 +225,7 @@ def new_repo_result(repo_full_name, repo_id=None):
     return {
         "repo_full_name": repo_full_name,
         "repo_id": repo_id,
+        "identity_resolution_mode": None,
         "status": "started",
         "target_issues_requested": 0,
         "issues_resolved_rows_seen": 0,
@@ -171,6 +235,7 @@ def new_repo_result(repo_full_name, repo_id=None):
         "pr_commit_links_rows_seen": 0,
         "issue_file_links_rows_seen": 0,
         "commit_files_rows_seen": 0,
+        "commits_rows_seen": 0,
         "commits_resolved_rows_seen": 0,
         "target_issues_kept": 0,
         "ownership_policy_used": None,
@@ -178,6 +243,7 @@ def new_repo_result(repo_full_name, repo_id=None):
         "issues_with_pr_merge_evidence": 0,
         "issues_with_pr_exact_commit_evidence": 0,
         "issues_with_pr_head_evidence": 0,
+        "known_commit_rows_in_lookup": 0,
         "issues_with_any_pr_based_evidence": 0,
         "issues_with_only_file_fallback_evidence": 0,
         "issues_with_file_links": 0,
@@ -710,6 +776,61 @@ def prepare_commit_files_frame(commit_files_df):
         df["deletions"] = pd.NA
     return df.reset_index(drop=True)
 
+def prepare_commits_frame(commits_df):
+    if commits_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "repo_id",
+                "repo_full_name",
+                "commit_sha",
+                "commit_timestamp",
+                "author_email",
+                "author_name",
+                "author_login",
+            ]
+        )
+
+    df = commits_df.copy()
+    needed_columns = [
+        "repo_id",
+        "repo_full_name",
+        "commit_sha",
+        "commit_timestamp",
+        "author_email",
+        "author_name",
+        "author_login",
+    ]
+    existing_columns = [column for column in needed_columns if column in df.columns]
+    df = df[existing_columns].copy()
+
+    if "commit_sha" in df.columns:
+        df["commit_sha"] = df["commit_sha"].apply(clean_text)
+        df = df[df["commit_sha"].notna()].copy()
+    else:
+        df["commit_sha"] = None
+
+    if "commit_timestamp" in df.columns:
+        df["commit_timestamp"] = safe_to_datetime(df["commit_timestamp"])
+    else:
+        df["commit_timestamp"] = pd.NaT
+
+    if "author_email" in df.columns:
+        df["author_email"] = df["author_email"].apply(clean_text)
+    else:
+        df["author_email"] = None
+
+    if "author_name" in df.columns:
+        df["author_name"] = df["author_name"].apply(clean_text)
+    else:
+        df["author_name"] = None
+
+    if "author_login" in df.columns:
+        df["author_login"] = df["author_login"].apply(clean_text)
+    else:
+        df["author_login"] = None
+
+    return df.drop_duplicates(subset=["repo_full_name", "commit_sha"]).reset_index(drop=True)
+
 def prepare_commits_resolved_frame(commits_resolved_df, exclude_bots=False):
     if commits_resolved_df.empty:
         return commits_resolved_df
@@ -804,15 +925,66 @@ def build_commit_file_index(commit_files_df):
             path_index.setdefault(file_path, []).append(row)
     return path_index
 
-def build_commits_lookup(commits_resolved_df):
-    if commits_resolved_df.empty:
-        return {}
+def build_commits_lookup(commits_df, commits_resolved_df):
     commits_lookup = {}
-    for row in commits_resolved_df.to_dict(orient="records"):
-        commit_sha = clean_text(row.get("commit_sha"))
-        if not commit_sha:
-            continue
-        commits_lookup[commit_sha] = row
+
+    if commits_df is not None and not commits_df.empty:
+        for row in commits_df.to_dict(orient="records"):
+            commit_sha = clean_text(row.get("commit_sha"))
+            if not commit_sha:
+                continue
+
+            commits_lookup[commit_sha] = {
+                "repo_id": row.get("repo_id"),
+                "repo_full_name": row.get("repo_full_name"),
+                "commit_sha": commit_sha,
+                "commit_timestamp": row.get("commit_timestamp"),
+                "commit_author_contributor_key": None,
+                "author_email": clean_text(row.get("author_email")),
+                "author_name": clean_text(row.get("author_name")),
+                "author_login": clean_text(row.get("author_login")),
+            }
+
+    if commits_resolved_df is not None and not commits_resolved_df.empty:
+        for row in commits_resolved_df.to_dict(orient="records"):
+            commit_sha = clean_text(row.get("commit_sha"))
+            if not commit_sha:
+                continue
+
+            existing = commits_lookup.get(commit_sha)
+            if existing is None:
+                existing = {
+                    "repo_id": row.get("repo_id"),
+                    "repo_full_name": row.get("repo_full_name"),
+                    "commit_sha": commit_sha,
+                    "commit_timestamp": row.get("commit_timestamp"),
+                    "commit_author_contributor_key": None,
+                    "author_email": clean_text(row.get("author_email")),
+                    "author_name": clean_text(row.get("author_name")),
+                    "author_login": clean_text(row.get("author_login")),
+                }
+
+            resolved_key = clean_text(row.get("commit_author_contributor_key"))
+            if resolved_key:
+                existing["commit_author_contributor_key"] = resolved_key
+
+            if existing.get("repo_id") is None and row.get("repo_id") is not None:
+                existing["repo_id"] = row.get("repo_id")
+
+            if pd.isna(existing.get("commit_timestamp")) and not pd.isna(row.get("commit_timestamp")):
+                existing["commit_timestamp"] = row.get("commit_timestamp")
+
+            if not clean_text(existing.get("author_email")) and clean_text(row.get("author_email")):
+                existing["author_email"] = clean_text(row.get("author_email"))
+
+            if not clean_text(existing.get("author_name")) and clean_text(row.get("author_name")):
+                existing["author_name"] = clean_text(row.get("author_name"))
+
+            if not clean_text(existing.get("author_login")) and clean_text(row.get("author_login")):
+                existing["author_login"] = clean_text(row.get("author_login"))
+
+            commits_lookup[commit_sha] = existing
+
     return commits_lookup
 
 def build_pr_lookup_maps(issue_pr_links_df, pull_requests_df, pr_commit_links_df, commits_lookup):
@@ -1717,6 +1889,7 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
     repo_full_name = repo_row["full_name"]
     repo_lookup = target_issue_lookup.get(repo_full_name)
     result = new_repo_result(repo_full_name, repo_row.get("repo_id"))
+    result["identity_resolution_mode"] = get_ownership_identity_mode(config)
 
     if not repo_lookup:
         result["status"] = "skipped_no_target_issues"
@@ -1733,6 +1906,7 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
     pr_commit_links_df = stage_inputs["pr_commit_links"]
     issue_file_links_df = stage_inputs["issue_file_links"]
     commit_files_df = stage_inputs["commit_files"]
+    commits_df = stage_inputs["commits"]
     commits_resolved_df = stage_inputs["commits_resolved"]
 
     result["issues_resolved_rows_seen"] = len(issues_df)
@@ -1742,6 +1916,7 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
     result["pr_commit_links_rows_seen"] = len(pr_commit_links_df)
     result["issue_file_links_rows_seen"] = len(issue_file_links_df)
     result["commit_files_rows_seen"] = len(commit_files_df)
+    result["commits_rows_seen"] = len(commits_df)
     result["commits_resolved_rows_seen"] = len(commits_resolved_df)
 
     repo_policy = select_repo_ownership_policy(config, overlap_lookup.get(repo_full_name))
@@ -1767,25 +1942,30 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
     pull_requests_df = prepare_pull_requests_frame(pull_requests_df)
     pr_commit_links_df = prepare_pr_commit_links_frame(pr_commit_links_df)
     issue_file_links_df = normalize_issue_file_links_frame(issue_file_links_df, target_issue_ids, target_issue_numbers)
-    exclude_bots = bool(get_ownership_option(config, "exclude_bots_from_ownership", getattr(config.bot_handling, "exclude_bots_from_ownership_metrics", False)))
+    exclude_bots = bool(get_ownership_option(config, "exclude_bots_from_ownership",
+                                             getattr(config.bot_handling, "exclude_bots_from_ownership_metrics",
+                                                     False)))
+    commits_df = prepare_commits_frame(commits_df)
     commits_resolved_df = prepare_commits_resolved_frame(commits_resolved_df, exclude_bots=exclude_bots)
     commit_files_df = prepare_commit_files_frame(commit_files_df)
 
     high_conf_levels = get_ownership_option(config, "high_confidence_issue_file_levels", ["high"])
-    high_conf_levels = {normalize_value(value) for value in list(high_conf_levels or ["high"]) if normalize_value(value)}
+    high_conf_levels = {normalize_value(value) for value in list(high_conf_levels or ["high"]) if
+                        normalize_value(value)}
     issue_file_lookup, _ = build_issue_file_summary(issue_file_links_df, high_conf_levels)
     commit_file_index = build_commit_file_index(commit_files_df)
-    commits_lookup = build_commits_lookup(commits_resolved_df)
+    commits_lookup = build_commits_lookup(commits_df, commits_resolved_df)
+    result["known_commit_rows_in_lookup"] = int(len(commits_lookup))
     pr_maps = build_pr_lookup_maps(issue_pr_links_df, pull_requests_df, pr_commit_links_df, commits_lookup)
-
     sparse_thresholds = {
         "min_linked_files": int(get_ownership_option(config, "min_linked_files_for_ok", 1)),
         "min_resolved_commit_rows": int(get_ownership_option(config, "min_resolved_commit_rows_for_ok", 1)),
         "min_contributors": int(get_ownership_option(config, "min_contributors_for_ok", 1)),
     }
 
-    batch_size = get_ownership_option(config, "write_batch_size", 5000)
-    repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / sanitize_repo_name(repo_full_name)
+    batch_size = int(get_ownership_option(config, "write_batch_size", 5000))
+    runtime_names = get_ownership_runtime_names(config)
+    repo_dir = get_batch_root(config, runtime_names["batch_folder_name"]) / sanitize_repo_name(repo_full_name)
     writer = OwnershipFeatureRepoChunkWriter(config=config, repo_dir=repo_dir, batch_size=batch_size)
     write_evidence_table = bool(get_ownership_option(config, "write_evidence_table", True))
     comments_by_issue_number = {}
@@ -1868,8 +2048,46 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
         writer.add_issue_row(issue_feature_row)
         result["issue_rows_written"] += 1
 
-        if resolve_linked_pr_rows(issue_row, pr_maps):
+        linked_pr_rows = resolve_linked_pr_rows(issue_row, pr_maps)
+        if linked_pr_rows:
             result["issues_with_pr_links"] += 1
+
+        has_pr_merge_evidence = int(
+            pd.to_numeric(issue_feature_row.get("ownership_has_pr_merge_evidence"), errors="coerce") or 0)
+        has_pr_exact_commit_evidence = int(
+            pd.to_numeric(issue_feature_row.get("ownership_has_pr_exact_commit_evidence"), errors="coerce") or 0)
+        has_pr_head_evidence = int(
+            pd.to_numeric(issue_feature_row.get("ownership_has_pr_head_evidence"), errors="coerce") or 0)
+        has_any_pr_based_evidence = 1 if (
+                has_pr_merge_evidence == 1
+                or has_pr_exact_commit_evidence == 1
+                or has_pr_head_evidence == 1
+        ) else 0
+
+        result["issues_with_pr_merge_evidence"] += has_pr_merge_evidence
+        result["issues_with_pr_exact_commit_evidence"] += has_pr_exact_commit_evidence
+        result["issues_with_pr_head_evidence"] += has_pr_head_evidence
+        result["issues_with_any_pr_based_evidence"] += has_any_pr_based_evidence
+
+        selected_pr_merge_count = int(
+            sum(1 for row in selected_any_rows if clean_text(row.get("evidence_type")) == "pr_merge"))
+        selected_pr_exact_commit_count = int(
+            sum(1 for row in selected_any_rows if clean_text(row.get("evidence_type")) == "pr_exact_commit"))
+        selected_pr_head_count = int(
+            sum(1 for row in selected_any_rows if clean_text(row.get("evidence_type")) == "pr_head"))
+        selected_file_fallback_count = int(
+            sum(1 for row in selected_any_rows if clean_text(row.get("evidence_type")) == "file_fallback"))
+
+        result["issues_selected_pr_merge_evidence"] += 1 if selected_pr_merge_count > 0 else 0
+        result["issues_selected_pr_exact_commit_evidence"] += 1 if selected_pr_exact_commit_count > 0 else 0
+        result["issues_selected_pr_head_evidence"] += 1 if selected_pr_head_count > 0 else 0
+        result["issues_selected_file_fallback_evidence"] += 1 if selected_file_fallback_count > 0 else 0
+        result["issues_selected_fallback_only"] += 1 if (
+                selected_file_fallback_count > 0
+                and selected_pr_merge_count == 0
+                and selected_pr_exact_commit_count == 0
+                and selected_pr_head_count == 0
+        ) else 0
 
         if write_evidence_table:
             for evidence_row in all_evidence_rows:
@@ -1882,7 +2100,8 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
     return result
 
 def merge_ownership_feature_batches(config, logger, stage_paths):
-    batch_root = get_batch_root(config, BATCH_FOLDER_NAME)
+    runtime_names = get_ownership_runtime_names(config)
+    batch_root = get_batch_root(config, runtime_names["batch_folder_name"])
     if not batch_root.exists():
         logger.warning("Ownership feature batch root does not exist: %s", batch_root)
         return
@@ -1921,6 +2140,7 @@ def write_run_manifest(repo_rows, summary_rows, stage_paths):
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "script": "build_issue_ownership_features.py",
+        "identity_resolution_mode": stage_paths.get("identity_resolution_mode"),
         "repo_count_requested": len(repo_rows),
         "repo_count_processed": len(summary_rows),
         "completed_repo_count": sum(1 for row in summary_rows if row.get("status") == "completed"),
@@ -1937,12 +2157,13 @@ def main(config_path=None):
     ensure_project_directories(config)
     logger = setup_logger(config)
     stage_paths = get_stage_paths(config)
+    runtime_names = get_ownership_runtime_names(config)
     repo_id_lookup = build_repo_id_lookup(config)
     overlap_lookup = load_pr_overlap_policy_lookup(stage_paths)
 
     repo_rows = load_repo_list(config.outputs.repo_included_list)
     target_issue_lookup = build_target_issue_lookup(config)
-    batch_root = reset_batch_root(config, BATCH_FOLDER_NAME)
+    batch_root = reset_batch_root(config, runtime_names["batch_folder_name"])
     logger.info("Reset batch root: %s", batch_root)
 
     max_repos_per_run = get_ownership_option(config, "max_repos_per_run", None)
@@ -1955,8 +2176,8 @@ def main(config_path=None):
         should_skip, reason = should_skip_repo(
             config,
             repo_full_name,
-            checkpoint_prefix=CHECKPOINT_PREFIX,
-            raw_folder_name=RAW_FOLDER_NAME,
+            checkpoint_prefix=runtime_names["checkpoint_prefix"],
+            raw_folder_name=runtime_names["raw_folder_name"],
             section_name="ownership_features",
             raw_source="features",
         )
@@ -1971,7 +2192,11 @@ def main(config_path=None):
             )
             continue
 
-        logger.info("Processing repo %s", repo_full_name)
+        logger.info(
+            "Processing repo %s | identity_mode=%s",
+            repo_full_name,
+            get_ownership_identity_mode(config),
+        )
         try:
             result = process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, stage_paths, overlap_lookup)
         except Exception as exc:
@@ -1980,7 +2205,7 @@ def main(config_path=None):
             result["status"] = "failed"
             result["error_message"] = str(exc)
 
-        write_repo_checkpoint(config, CHECKPOINT_PREFIX, repo_full_name, result)
+        write_repo_checkpoint(config, runtime_names["checkpoint_prefix"], repo_full_name, result)
         summary_rows.append(result)
 
     merge_ownership_feature_batches(config, logger, stage_paths)

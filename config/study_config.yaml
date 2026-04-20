@@ -373,6 +373,8 @@ identity_resolution:
   pr_commit_bridge_min_distinct_prs: 1
   pr_commit_bridge_require_bijective: true
 
+  attachment_identity_mode: "strict" # strict or fuzzy
+
   normalized_name_rules:
     lowercase: true
     strip_whitespace: true
@@ -463,6 +465,15 @@ outputs:
   analysis_dataset_rq3_issue_level_base_table: "./data/final/analysis_dataset_rq3_issue_level_base.parquet"
   analysis_dataset_qa_summary_csv: "./logs/qa/analysis_dataset_qa_summary.csv"
   pr_commit_overlap_qa_summary_csv: "./logs/qa/pr_commit_overlap_qa_summary.csv"
+  contributor_identity_table_fuzzy: "./data/linked/identity_resolution/contributor_identity_map_fuzzy.parquet"
+  contributor_identity_clusters_table_fuzzy: "./data/linked/identity_resolution/contributor_identity_clusters_fuzzy.parquet"
+  issues_resolved_table_fuzzy: "./data/linked/resolved_entities_fuzzy/issues_resolved_fuzzy.parquet"
+  issue_comments_resolved_table_fuzzy: "./data/linked/resolved_entities_fuzzy/issue_comments_resolved_fuzzy.parquet"
+  pull_requests_resolved_table_fuzzy: "./data/linked/resolved_entities_fuzzy/pull_requests_resolved_fuzzy.parquet"
+  commits_resolved_table_fuzzy: "./data/linked/resolved_entities_fuzzy/commits_resolved_fuzzy.parquet"
+  issue_ownership_features_table_fuzzy: "./data/features/ownership_fuzzy/issue_ownership_features_fuzzy.parquet"
+  issue_file_ownership_evidence_table_fuzzy: "./data/features/ownership_fuzzy/issue_file_ownership_evidence_fuzzy.parquet"
+  ownership_feature_qa_summary_csv_fuzzy: "./logs/qa/issue_ownership_feature_qa_summary_fuzzy.csv"
 
 checkpointing:
   enabled: true

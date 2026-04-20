@@ -376,6 +376,7 @@ class IdentityResolutionConfig:
     write_batch_size: int
     write_cluster_summary: bool
     preserve_normalized_columns: bool
+    attachment_identity_mode: str
     normalized_name_rules: NormalizedNameRulesConfig
     email_rules: EmailRulesConfig
     aggressive_fuzzy_merge: bool
@@ -444,30 +445,50 @@ class OutputsConfig:
     pull_requests_table: str
     commits_table: str
     commit_files_table: str
+
     comparison_issue_set_table: str
     wontfix_issue_set_table: str
+
     issue_pr_links_table: str
     pr_commit_links_table: str
     issue_file_links_table: str
+
     contributor_identity_table: str
     contributor_identity_clusters_table: str
+    contributor_identity_table_fuzzy: str
+    contributor_identity_clusters_table_fuzzy: str
+
     issues_resolved_table: str
     issue_comments_resolved_table: str
     pull_requests_resolved_table: str
     commits_resolved_table: str
+
+    issues_resolved_table_fuzzy: str
+    issue_comments_resolved_table_fuzzy: str
+    pull_requests_resolved_table_fuzzy: str
+    commits_resolved_table_fuzzy: str
+
     issue_sentiment_features_table: str
     comment_sentiment_features_table: str
     sentiment_feature_qa_summary_csv: str
+
     issue_ownership_features_table: str
     issue_file_ownership_evidence_table: str
     ownership_feature_qa_summary_csv: str
+
+    issue_ownership_features_table_fuzzy: str
+    issue_file_ownership_evidence_table_fuzzy: str
+    ownership_feature_qa_summary_csv_fuzzy: str
+
     issue_participation_features_table: str
     participation_feature_qa_summary_csv: str
+
     analysis_dataset_full_issue_level_table: str
     analysis_dataset_rq1_table: str
     analysis_dataset_rq2_table: str
     analysis_dataset_rq3_issue_level_base_table: str
     analysis_dataset_qa_summary_csv: str
+
     extraction_summary_csv: str
     run_manifest_json: str
     resolved_config_snapshot_yaml: str
@@ -1060,13 +1081,16 @@ def _parse_identity_resolution(data):
         scope=_get_required(d, "scope", section),
         create_contributor_key=_get_required(d, "create_contributor_key", section),
         contributor_key_format=_get_required(d, "contributor_key_format", section),
-        matching_priority=_require_list(_get_required(d, "matching_priority", section),
-                                        "identity_resolution.matching_priority"),
+        matching_priority=_require_list(
+            _get_required(d, "matching_priority", section),
+            "identity_resolution.matching_priority",
+        ),
         max_repos_per_run=_get_optional(d, "max_repos_per_run", None),
         resume_mode=_get_optional(d, "resume_mode", "fresh"),
         write_batch_size=_get_optional(d, "write_batch_size", 5000),
         write_cluster_summary=_get_optional(d, "write_cluster_summary", True),
         preserve_normalized_columns=_get_optional(d, "preserve_normalized_columns", True),
+        attachment_identity_mode=_get_optional(d, "attachment_identity_mode", "strict"),
         normalized_name_rules=NormalizedNameRulesConfig(
             lowercase=_get_required(name_rules_d, "lowercase", "identity_resolution.normalized_name_rules"),
             strip_whitespace=_get_required(name_rules_d, "strip_whitespace",
@@ -1077,8 +1101,11 @@ def _parse_identity_resolution(data):
         email_rules=EmailRulesConfig(
             lowercase=_get_required(email_rules_d, "lowercase", "identity_resolution.email_rules"),
             strip_whitespace=_get_required(email_rules_d, "strip_whitespace", "identity_resolution.email_rules"),
-            allow_email_for_internal_mapping_only=_get_required(email_rules_d, "allow_email_for_internal_mapping_only",
-                                                                "identity_resolution.email_rules"),
+            allow_email_for_internal_mapping_only=_get_required(
+                email_rules_d,
+                "allow_email_for_internal_mapping_only",
+                "identity_resolution.email_rules",
+            ),
         ),
         aggressive_fuzzy_merge=_get_required(d, "aggressive_fuzzy_merge", section),
         keep_unresolved_identities=_get_required(d, "keep_unresolved_identities", section),
@@ -1194,6 +1221,15 @@ def _parse_outputs(raw_outputs):
         run_manifest_json=raw_outputs.get("run_manifest_json", "./logs/extraction/issues_comments_run_manifest.json"),
         resolved_config_snapshot_yaml=raw_outputs.get("resolved_config_snapshot_yaml", "./logs/extraction/resolved_study_config.yaml"),
         comparison_issue_qa_summary_csv=raw_outputs.get("comparison_issue_qa_summary_csv", "./logs/qa/comparison_issue_set_summary.csv"),
+        contributor_identity_table_fuzzy=raw_outputs.get("contributor_identity_table_fuzzy", "./data/linked/identity_resolution/contributor_identity_map_fuzzy.parquet"),
+        contributor_identity_clusters_table_fuzzy=raw_outputs.get("contributor_identity_clusters_table_fuzzy", "./data/linked/identity_resolution/contributor_identity_clusters_fuzzy.parquet"),
+        issues_resolved_table_fuzzy=raw_outputs.get("issues_resolved_table_fuzzy", "./data/linked/resolved_entities/resolved_study_table_fuzzy.parquet"),
+        issue_comments_resolved_table_fuzzy=raw_outputs.get("issue_comments_resolved_table_fuzzy", "./data/linked/resolved_entities/issue_comments_resolved_fuzzy.parquet" ),
+        pull_requests_resolved_table_fuzzy=raw_outputs.get("pull_requests_resolved_table_fuzzy", "./data/linked/resolved_entities/pull_requests_resolved_fuzzy.parquet"),
+        commits_resolved_table_fuzzy=raw_outputs.get("commits_resolved_table_fuzzy", "./data/linked/resolved_entities/commits_resolved_fuzzy.parquet"),
+        issue_ownership_features_table_fuzzy=raw_outputs.get("issue_ownership_features_table_fuzzy", "./data/features/ownership/issue_ownership_features_fuzzy.parquet"),
+        issue_file_ownership_evidence_table_fuzzy=raw_outputs.get("issue_file_ownership_evidence_table_fuzzy", "./data/features/ownership/issue_file_ownership_evidence_fuzzy.parquet"),
+        ownership_feature_qa_summary_csv_fuzzy=raw_outputs.get("ownership_feature_qa_summary_csv_fuzzy", "./logs/qa/issue_ownership_feature_qa_summary_fuzzy.csv" ),
     )
 
 def _parse_checkpointing(data):
