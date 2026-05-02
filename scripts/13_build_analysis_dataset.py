@@ -46,10 +46,8 @@ def setup_logger(config):
 
     return logger
 
-
 def get_analysis_dataset_option(config, field_name, default_value):
     return get_stage_option(config, "analysis_dataset", field_name, default_value)
-
 
 def get_stage_paths(config):
     outputs = getattr(config, "outputs", None)
@@ -83,14 +81,12 @@ def get_stage_paths(config):
         "run_manifest_path": Path(config.logging.qa_log_dir) / "13_build_analysis_dataset_run_manifest.json",
     }
 
-
 def find_first_present_column(df, candidates):
     lower_map = {str(column).lower(): column for column in df.columns}
     for candidate in candidates:
         if candidate.lower() in lower_map:
             return lower_map[candidate.lower()]
     return None
-
 
 def normalize_issue_set_columns(df, analysis_set_name):
     if df.empty:
@@ -119,7 +115,6 @@ def normalize_issue_set_columns(df, analysis_set_name):
     out_df = out_df.drop_duplicates().reset_index(drop=True)
     return out_df
 
-
 def build_population_frame(config):
     merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
     wontfix_df = load_table(config.outputs.wontfix_issue_set_table, merge_mode=merge_mode)
@@ -137,7 +132,6 @@ def build_population_frame(config):
     combined["issue_number"] = pd.to_numeric(combined["issue_number"], errors="coerce")
     combined = combined.drop_duplicates(subset=["repo_full_name", "issue_id", "issue_number", "analysis_set"]).reset_index(drop=True)
     return combined
-
 
 def normalize_issues_resolved_frame(df):
     if df.empty:
@@ -189,7 +183,6 @@ def normalize_issues_resolved_frame(df):
         out_df["closed_at"] = safe_to_datetime(out_df["closed_at"])
     return out_df.drop_duplicates(subset=["repo_full_name", "issue_id", "issue_number"]).reset_index(drop=True)
 
-
 def normalize_repo_metadata_frame(df):
     if df.empty:
         return pd.DataFrame(columns=["repo_full_name"])
@@ -222,7 +215,6 @@ def normalize_repo_metadata_frame(df):
     if "created_at_repo" in out_df.columns:
         out_df["created_at_repo"] = safe_to_datetime(out_df["created_at_repo"])
     return out_df.drop_duplicates(subset=["repo_full_name"]).reset_index(drop=True)
-
 
 def normalize_feature_frame(df, family_name):
     if df.empty:
@@ -260,7 +252,6 @@ def normalize_feature_frame(df, family_name):
     out_df = out_df.drop_duplicates().reset_index(drop=True)
     return out_df
 
-
 def dedupe_feature_frame(df, family_name, logger):
     if df.empty:
         return df, 0
@@ -279,7 +270,6 @@ def dedupe_feature_frame(df, family_name, logger):
         ).reset_index(drop=True)
 
     return exact_deduped, duplicate_count
-
 
 def merge_with_issue_fallback(base_df, add_df, family_name):
     if base_df.empty or add_df.empty:
@@ -320,7 +310,6 @@ def merge_with_issue_fallback(base_df, add_df, family_name):
 
     return merged
 
-
 def reconcile_shared_columns(df, left_col, right_col, canonical_col, qa_metrics):
     if left_col not in df.columns and right_col not in df.columns:
         return df
@@ -333,7 +322,6 @@ def reconcile_shared_columns(df, left_col, right_col, canonical_col, qa_metrics)
 
     df[canonical_col] = left_series.combine_first(right_series)
     return df
-
 
 def add_family_presence_flags(df):
     out_df = df.copy()
@@ -349,7 +337,6 @@ def add_family_presence_flags(df):
 
     return out_df
 
-
 def add_rq_usability_flags(df, config):
     out_df = df.copy()
     require_sentiment_for_rq1 = bool(get_analysis_dataset_option(config, "require_sentiment_for_rq1", True))
@@ -357,19 +344,47 @@ def add_rq_usability_flags(df, config):
     ownership_include_sparse = bool(get_analysis_dataset_option(config, "ownership_usable_flags_include_sparse", True))
 
     rq1_mask = pd.Series(True, index=out_df.index)
+
     if require_sentiment_for_rq1:
-        rq1_mask = rq1_mask & out_df["has_sentiment_features"].eq(1)
+        if "has_sentiment_features" in out_df.columns:
+            rq1_mask = rq1_mask & out_df["has_sentiment_features"].eq(1)
+        else:
+            rq1_mask = rq1_mask & False
+
     if require_participation_for_rq1:
-        rq1_mask = rq1_mask & out_df["has_participation_features"].eq(1)
+        if "has_participation_features" in out_df.columns:
+            rq1_mask = rq1_mask & out_df["has_participation_features"].eq(1)
+        else:
+            rq1_mask = rq1_mask & False
+
     out_df["usable_for_rq1"] = rq1_mask.astype(int)
 
     acceptable_flags = {"ok"}
     if ownership_include_sparse:
         acceptable_flags.add("sparse_evidence")
-    out_df["usable_for_rq2"] = out_df.get("ownership_feature_coverage_flag").isin(acceptable_flags).astype(int)
-    out_df["usable_for_rq2_strict"] = out_df.get("ownership_feature_coverage_flag").eq("ok").astype(int)
-    return out_df
 
+    ownership_coverage_col = find_first_present_column(
+        out_df,
+        [
+            "ownership_feature_coverage_flag",
+            "ownership_coverage_flag",
+        ],
+    )
+
+    if ownership_coverage_col is not None:
+        ownership_coverage = out_df[ownership_coverage_col]
+    else:
+        ownership_coverage = pd.Series(pd.NA, index=out_df.index)
+
+    out_df["usable_for_rq2"] = ownership_coverage.isin(acceptable_flags).astype(int)
+    out_df["usable_for_rq2_strict"] = ownership_coverage.eq("ok").astype(int)
+
+    if "has_participation_features" in out_df.columns:
+        out_df["usable_for_rq3"] = out_df["has_participation_features"].eq(1).astype(int)
+    else:
+        out_df["usable_for_rq3"] = 0
+
+    return out_df
 
 def build_rq_views(full_df, config):
     rq1_df = full_df[full_df["usable_for_rq1"] == 1].copy()
@@ -380,9 +395,16 @@ def build_rq_views(full_df, config):
     else:
         rq2_df = full_df.copy()
 
-    rq3_issue_base_df = full_df.copy()
-    return rq1_df.reset_index(drop=True), rq2_df.reset_index(drop=True), rq3_issue_base_df.reset_index(drop=True)
+    if "usable_for_rq3" in full_df.columns:
+        rq3_issue_base_df = full_df[full_df["usable_for_rq3"] == 1].copy()
+    else:
+        rq3_issue_base_df = full_df.copy()
 
+    return (
+        rq1_df.reset_index(drop=True),
+        rq2_df.reset_index(drop=True),
+        rq3_issue_base_df.reset_index(drop=True),
+    )
 
 def build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_issue_base_df, qa_metrics):
     rows = []
@@ -433,7 +455,6 @@ def build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_issue_base_df, qa_metrics
 
     return rows
 
-
 def sort_output_frame(df):
     if df.empty:
         return df
@@ -441,7 +462,6 @@ def sort_output_frame(df):
     if not sort_columns:
         return df.reset_index(drop=True)
     return df.sort_values(sort_columns, kind="stable").reset_index(drop=True)
-
 
 def load_input_frames(config, logger):
     merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
@@ -475,7 +495,6 @@ def load_input_frames(config, logger):
         "duplicate_ownership_keys_detected": int(ownership_dupes),
     }
     return population_df, issues_resolved_df, repositories_df, sentiment_df, participation_df, ownership_df, qa_metrics
-
 
 def build_full_analysis_dataset(config, logger):
     (
@@ -546,16 +565,26 @@ def build_full_analysis_dataset(config, logger):
             full_df[date_col] = safe_to_datetime(full_df[date_col])
 
     full_df = sort_output_frame(full_df)
-    qa_metrics["population_rows_final_pre_filter"] = int(len(full_df))
-    return full_df, qa_metrics
 
+    qa_metrics["population_rows_final_pre_filter"] = int(len(full_df))
+    qa_metrics["population_rows_final"] = int(len(full_df))
+    qa_metrics["rows_with_sentiment_features"] = int(full_df["has_sentiment_features"].sum())
+    qa_metrics["rows_with_participation_features"] = int(full_df["has_participation_features"].sum())
+    qa_metrics["rows_with_ownership_features"] = int(full_df["has_ownership_features"].sum())
+    qa_metrics["rows_usable_for_rq1"] = int(full_df["usable_for_rq1"].sum())
+    qa_metrics["rows_usable_for_rq2"] = int(full_df["usable_for_rq2"].sum())
+    qa_metrics["rows_usable_for_rq2_strict"] = int(full_df["usable_for_rq2_strict"].sum())
+    qa_metrics["rows_usable_for_rq3"] = int(
+        full_df.get("usable_for_rq3", pd.Series(0, index=full_df.index)).sum()
+    )
+
+    return full_df, qa_metrics
 
 def write_run_manifest(run_manifest_path, payload):
     run_manifest_path = Path(run_manifest_path)
     run_manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with run_manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, default=str)
-
 
 def main(config_path=None):
     config_path = Path(config_path or DEFAULT_CONFIG_PATH)
