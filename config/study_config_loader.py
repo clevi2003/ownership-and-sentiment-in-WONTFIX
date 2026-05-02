@@ -495,6 +495,14 @@ class OutputsConfig:
     comparison_issue_qa_summary_csv: str
     pr_commit_overlap_qa_summary_csv: str
 
+    contributor_repo_ownership_profiles_table: str
+    contributor_file_ownership_profiles_table: str
+    contributor_ownership_profile_qa_summary_csv: str
+
+    contributor_repo_ownership_profiles_table_fuzzy: str
+    contributor_file_ownership_profiles_table_fuzzy: str
+    contributor_ownership_profile_qa_summary_csv_fuzzy: str
+
 @dataclass
 class CheckpointingConfig:
     enabled: bool
@@ -1230,6 +1238,13 @@ def _parse_outputs(raw_outputs):
         issue_ownership_features_table_fuzzy=raw_outputs.get("issue_ownership_features_table_fuzzy", "./data/features/ownership/issue_ownership_features_fuzzy.parquet"),
         issue_file_ownership_evidence_table_fuzzy=raw_outputs.get("issue_file_ownership_evidence_table_fuzzy", "./data/features/ownership/issue_file_ownership_evidence_fuzzy.parquet"),
         ownership_feature_qa_summary_csv_fuzzy=raw_outputs.get("ownership_feature_qa_summary_csv_fuzzy", "./logs/qa/issue_ownership_feature_qa_summary_fuzzy.csv" ),
+
+        contributor_repo_ownership_profiles_table=raw_outputs.get("contributor_repo_ownership_profiles_table", "./data/features/ownership/contributor_repo_ownership_profiles.parquet"),
+        contributor_file_ownership_profiles_table=raw_outputs.get("contributor_file_ownership_profiles_table", "./data/features/ownership/contributor_file_ownership_profiles.parquet"),
+        contributor_file_ownership_profiles_table_fuzzy=raw_outputs.get("contributor_file_ownership_profiles_table_fuzzy", "./data/features/ownership/contributor_file_ownership_profiles_fuzzy.parquet"),
+        contributor_repo_ownership_profiles_table_fuzzy=raw_outputs.get("contributor_repo_ownership_profiles_table_fuzzy", "./data/features/ownership/contributor_repo_ownership_profiles_fuzzy.parquet"),
+        contributor_ownership_profile_qa_summary_csv=raw_outputs.get("contributor_ownership_profile_qa_summary_csv", "./logs/qa/contributor_ownership_profile_qa_summary.csv" ),
+        contributor_ownership_profile_qa_summary_csv_fuzzy=raw_outputs.get("contributor_ownership_profile_qa_summary_csv_fuzzy", "./logs/qa/contributor_ownership_profile_qa_summary_fuzzy.csv")
     )
 
 def _parse_checkpointing(data):
