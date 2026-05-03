@@ -354,6 +354,14 @@ ownership_features:
   pre_issue_repo_major_contributor_share_threshold: 0.05
   pre_issue_file_major_contributor_rank_threshold: 3
   pre_issue_file_major_contributor_share_threshold: 0.10
+  pre_issue_min_commits_for_repo_contributor: 1
+  pre_issue_min_commits_for_major_repo_contributor: 2
+  pre_issue_min_distinct_days_for_major_repo_contributor: 1
+  participant_role_require_resolved_key: true
+  participant_role_file_link_scope: "all" # all | high_confidence
+  pre_issue_min_commits_for_file_contributor: 1
+  pre_issue_min_commits_for_major_file_contributor: 2
+  pre_issue_min_distinct_days_for_major_file_contributor: 1
 
 identity_resolution:
   enabled: true
