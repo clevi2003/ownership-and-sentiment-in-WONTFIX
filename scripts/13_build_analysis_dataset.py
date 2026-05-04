@@ -357,17 +357,27 @@ def add_rq_usability_flags(df, config):
     ownership_include_sparse = bool(get_analysis_dataset_option(config, "ownership_usable_flags_include_sparse", True))
 
     rq1_mask = pd.Series(True, index=out_df.index)
+
     if require_sentiment_for_rq1:
         rq1_mask = rq1_mask & out_df["has_sentiment_features"].eq(1)
+
     if require_participation_for_rq1:
         rq1_mask = rq1_mask & out_df["has_participation_features"].eq(1)
+
     out_df["usable_for_rq1"] = rq1_mask.astype(int)
 
     acceptable_flags = {"ok"}
     if ownership_include_sparse:
         acceptable_flags.add("sparse_evidence")
-    out_df["usable_for_rq2"] = out_df.get("ownership_feature_coverage_flag").isin(acceptable_flags).astype(int)
-    out_df["usable_for_rq2_strict"] = out_df.get("ownership_feature_coverage_flag").eq("ok").astype(int)
+
+    if "ownership_feature_coverage_flag" in out_df.columns:
+        ownership_flags = out_df["ownership_feature_coverage_flag"]
+    else:
+        ownership_flags = pd.Series(pd.NA, index=out_df.index)
+
+    out_df["usable_for_rq2"] = ownership_flags.isin(acceptable_flags).astype(int)
+    out_df["usable_for_rq2_strict"] = ownership_flags.eq("ok").astype(int)
+
     return out_df
 
 
