@@ -24,6 +24,195 @@ from utils.io_helpers import (
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
 LOG_FILENAME = "13_build_analysis_dataset.log"
+RQ2_REPO_PARTICIPANT_ROLE_COLUMNS = [
+    "issue_author_has_resolved_key",
+    "issue_author_is_pre_issue_repo_contributor",
+    "issue_author_pre_issue_repo_commit_count",
+    "issue_author_pre_issue_repo_commit_share",
+    "issue_author_pre_issue_repo_distinct_days",
+    "issue_author_pre_issue_repo_rank",
+    "issue_author_is_pre_issue_major_repo_contributor",
+    "commenter_count_with_resolved_key",
+    "commenter_count_pre_issue_repo_contributors",
+    "share_commenters_pre_issue_repo_contributors",
+    "any_commenter_is_pre_issue_repo_contributor",
+    "commenter_count_pre_issue_major_repo_contributors",
+    "share_commenters_pre_issue_major_repo_contributors",
+    "any_commenter_is_pre_issue_major_repo_contributor",
+    "top_commenter_contributor_key",
+    "top_commenter_comment_count",
+    "top_commenter_is_pre_issue_repo_contributor",
+    "top_commenter_is_pre_issue_major_repo_contributor",
+]
+
+RQ2_FILE_PARTICIPANT_ROLE_COLUMNS = [
+    "participant_role_file_coverage_flag",
+    "participant_role_file_features_applicable",
+    "participant_role_linked_file_count",
+    "participant_role_high_conf_linked_file_count",
+    "participant_role_has_file_links",
+    "participant_role_has_high_conf_file_links",
+    "participant_role_has_pre_issue_file_history",
+    "participant_role_pre_issue_file_history_file_count",
+    "participant_role_file_author_has_resolved_key",
+    "participant_role_file_commenter_count_with_resolved_key",
+    "participant_role_file_has_resolved_commenters",
+    "participant_role_file_top_commenter_has_resolved_key",
+    "participant_role_file_author_applicable",
+    "participant_role_file_commenter_applicable",
+    "participant_role_file_top_commenter_applicable",
+    "issue_author_is_pre_issue_file_contributor",
+    "issue_author_pre_issue_linked_file_commit_count",
+    "issue_author_pre_issue_linked_file_count",
+    "issue_author_pre_issue_linked_file_share",
+    "issue_author_pre_issue_best_file_rank",
+    "issue_author_pre_issue_max_file_commit_share",
+    "issue_author_is_pre_issue_major_file_contributor",
+    "commenter_count_pre_issue_file_contributors",
+    "share_commenters_pre_issue_file_contributors",
+    "any_commenter_is_pre_issue_file_contributor",
+    "commenter_count_pre_issue_major_file_contributors",
+    "share_commenters_pre_issue_major_file_contributors",
+    "any_commenter_is_pre_issue_major_file_contributor",
+    "top_commenter_is_pre_issue_file_contributor",
+    "top_commenter_is_pre_issue_major_file_contributor",
+]
+
+RQ2_CONTINUITY_COLUMNS = [
+    "pre_issue_owner_count_for_continuity",
+    "post_issue_owner_count_for_continuity",
+    "pre_post_owner_overlap_count",
+    "pre_post_owner_jaccard",
+    "any_pre_issue_owner_became_post_issue_owner",
+    "top_pre_issue_owner_contributor_key",
+    "top_pre_issue_owner_became_post_issue_owner",
+    "post_issue_owners_with_pre_issue_repo_history_count",
+    "post_issue_owners_with_pre_issue_major_repo_history_count",
+    "share_post_issue_owners_with_pre_issue_repo_history",
+    "share_post_issue_owners_with_pre_issue_major_repo_history",
+    "any_post_issue_owner_with_pre_issue_repo_history",
+    "any_post_issue_owner_with_pre_issue_major_repo_history",
+    "post_issue_owners_with_pre_issue_file_history_count",
+    "post_issue_owners_with_pre_issue_major_file_history_count",
+    "share_post_issue_owners_with_pre_issue_file_history",
+    "share_post_issue_owners_with_pre_issue_major_file_history",
+    "any_post_issue_owner_with_pre_issue_file_history",
+    "any_post_issue_owner_with_pre_issue_major_file_history",
+    "issue_author_is_post_issue_owner",
+    "issue_author_pre_issue_repo_contributor_became_post_issue_owner",
+    "issue_author_pre_issue_file_contributor_became_post_issue_owner",
+    "commenter_count_eventual_post_issue_owners",
+    "share_commenters_eventual_post_issue_owners",
+    "any_commenter_is_eventual_post_issue_owner",
+    "top_commenter_is_eventual_post_issue_owner",
+    "commenter_count_pre_issue_repo_contributors_eventual_post_issue_owners",
+    "any_pre_issue_repo_contributor_commenter_is_eventual_post_issue_owner",
+    "commenter_count_pre_issue_file_contributors_eventual_post_issue_owners",
+    "any_pre_issue_file_contributor_commenter_is_eventual_post_issue_owner",
+]
+
+RQ2_DIRECT_OWNERSHIP_COLUMNS = [
+    "ownership_has_pre_issue_ownership",
+    "ownership_has_post_issue_ownership",
+    "ownership_pre_issue_contributor_count",
+    "ownership_post_issue_contributor_count",
+    "ownership_has_selected_conservative_pre_issue_fallback",
+    "ownership_top_contributor_share_churn",
+    "ownership_entropy_churn",
+    "ownership_discussion_overlap_fraction",
+]
+
+RQ2_BINARY_COLUMNS = [
+    "issue_author_has_resolved_key",
+    "issue_author_is_pre_issue_repo_contributor",
+    "issue_author_is_pre_issue_major_repo_contributor",
+    "any_commenter_is_pre_issue_repo_contributor",
+    "any_commenter_is_pre_issue_major_repo_contributor",
+    "top_commenter_is_pre_issue_repo_contributor",
+    "top_commenter_is_pre_issue_major_repo_contributor",
+    "participant_role_file_features_applicable",
+    "participant_role_has_file_links",
+    "participant_role_has_high_conf_file_links",
+    "participant_role_has_pre_issue_file_history",
+    "participant_role_file_author_has_resolved_key",
+    "participant_role_file_has_resolved_commenters",
+    "participant_role_file_top_commenter_has_resolved_key",
+    "participant_role_file_author_applicable",
+    "participant_role_file_commenter_applicable",
+    "participant_role_file_top_commenter_applicable",
+    "issue_author_is_pre_issue_file_contributor",
+    "issue_author_is_pre_issue_major_file_contributor",
+    "any_commenter_is_pre_issue_file_contributor",
+    "any_commenter_is_pre_issue_major_file_contributor",
+    "top_commenter_is_pre_issue_file_contributor",
+    "top_commenter_is_pre_issue_major_file_contributor",
+    "any_pre_issue_owner_became_post_issue_owner",
+    "top_pre_issue_owner_became_post_issue_owner",
+    "any_post_issue_owner_with_pre_issue_repo_history",
+    "any_post_issue_owner_with_pre_issue_major_repo_history",
+    "any_post_issue_owner_with_pre_issue_file_history",
+    "any_post_issue_owner_with_pre_issue_major_file_history",
+    "issue_author_is_post_issue_owner",
+    "issue_author_pre_issue_repo_contributor_became_post_issue_owner",
+    "issue_author_pre_issue_file_contributor_became_post_issue_owner",
+    "any_commenter_is_eventual_post_issue_owner",
+    "top_commenter_is_eventual_post_issue_owner",
+    "any_pre_issue_repo_contributor_commenter_is_eventual_post_issue_owner",
+    "any_pre_issue_file_contributor_commenter_is_eventual_post_issue_owner",
+    "ownership_has_pre_issue_ownership",
+    "ownership_has_post_issue_ownership",
+    "ownership_has_selected_conservative_pre_issue_fallback",
+]
+
+RQ2_COUNT_COLUMNS = [
+    "issue_author_pre_issue_repo_commit_count",
+    "issue_author_pre_issue_repo_distinct_days",
+    "issue_author_pre_issue_repo_rank",
+    "commenter_count_with_resolved_key",
+    "commenter_count_pre_issue_repo_contributors",
+    "commenter_count_pre_issue_major_repo_contributors",
+    "top_commenter_comment_count",
+    "participant_role_linked_file_count",
+    "participant_role_high_conf_linked_file_count",
+    "participant_role_pre_issue_file_history_file_count",
+    "participant_role_file_commenter_count_with_resolved_key",
+    "issue_author_pre_issue_linked_file_commit_count",
+    "issue_author_pre_issue_linked_file_count",
+    "issue_author_pre_issue_best_file_rank",
+    "commenter_count_pre_issue_file_contributors",
+    "commenter_count_pre_issue_major_file_contributors",
+    "pre_issue_owner_count_for_continuity",
+    "post_issue_owner_count_for_continuity",
+    "pre_post_owner_overlap_count",
+    "post_issue_owners_with_pre_issue_repo_history_count",
+    "post_issue_owners_with_pre_issue_major_repo_history_count",
+    "post_issue_owners_with_pre_issue_file_history_count",
+    "post_issue_owners_with_pre_issue_major_file_history_count",
+    "commenter_count_eventual_post_issue_owners",
+    "commenter_count_pre_issue_repo_contributors_eventual_post_issue_owners",
+    "commenter_count_pre_issue_file_contributors_eventual_post_issue_owners",
+    "ownership_pre_issue_contributor_count",
+    "ownership_post_issue_contributor_count",
+]
+
+RQ2_SHARE_COLUMNS = [
+    "issue_author_pre_issue_repo_commit_share",
+    "share_commenters_pre_issue_repo_contributors",
+    "share_commenters_pre_issue_major_repo_contributors",
+    "issue_author_pre_issue_linked_file_share",
+    "issue_author_pre_issue_max_file_commit_share",
+    "share_commenters_pre_issue_file_contributors",
+    "share_commenters_pre_issue_major_file_contributors",
+    "pre_post_owner_jaccard",
+    "share_post_issue_owners_with_pre_issue_repo_history",
+    "share_post_issue_owners_with_pre_issue_major_repo_history",
+    "share_post_issue_owners_with_pre_issue_file_history",
+    "share_post_issue_owners_with_pre_issue_major_file_history",
+    "share_commenters_eventual_post_issue_owners",
+    "ownership_top_contributor_share_churn",
+    "ownership_entropy_churn",
+    "ownership_discussion_overlap_fraction",
+]
 
 
 def setup_logger(config):
@@ -46,10 +235,8 @@ def setup_logger(config):
 
     return logger
 
-
 def get_analysis_dataset_option(config, field_name, default_value):
     return get_stage_option(config, "analysis_dataset", field_name, default_value)
-
 
 def get_stage_paths(config):
     outputs = getattr(config, "outputs", None)
@@ -83,14 +270,12 @@ def get_stage_paths(config):
         "run_manifest_path": Path(config.logging.qa_log_dir) / "13_build_analysis_dataset_run_manifest.json",
     }
 
-
 def find_first_present_column(df, candidates):
     lower_map = {str(column).lower(): column for column in df.columns}
     for candidate in candidates:
         if candidate.lower() in lower_map:
             return lower_map[candidate.lower()]
     return None
-
 
 def normalize_issue_set_columns(df, analysis_set_name):
     if df.empty:
@@ -119,7 +304,6 @@ def normalize_issue_set_columns(df, analysis_set_name):
     out_df = out_df.drop_duplicates().reset_index(drop=True)
     return out_df
 
-
 def build_population_frame(config):
     merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
     wontfix_df = load_table(config.outputs.wontfix_issue_set_table, merge_mode=merge_mode)
@@ -137,7 +321,6 @@ def build_population_frame(config):
     combined["issue_number"] = pd.to_numeric(combined["issue_number"], errors="coerce")
     combined = combined.drop_duplicates(subset=["repo_full_name", "issue_id", "issue_number", "analysis_set"]).reset_index(drop=True)
     return combined
-
 
 def normalize_issues_resolved_frame(df):
     if df.empty:
@@ -189,7 +372,6 @@ def normalize_issues_resolved_frame(df):
         out_df["closed_at"] = safe_to_datetime(out_df["closed_at"])
     return out_df.drop_duplicates(subset=["repo_full_name", "issue_id", "issue_number"]).reset_index(drop=True)
 
-
 def normalize_repo_metadata_frame(df):
     if df.empty:
         return pd.DataFrame(columns=["repo_full_name"])
@@ -222,7 +404,6 @@ def normalize_repo_metadata_frame(df):
     if "created_at_repo" in out_df.columns:
         out_df["created_at_repo"] = safe_to_datetime(out_df["created_at_repo"])
     return out_df.drop_duplicates(subset=["repo_full_name"]).reset_index(drop=True)
-
 
 def normalize_feature_frame(df, family_name):
     if df.empty:
@@ -260,7 +441,6 @@ def normalize_feature_frame(df, family_name):
     out_df = out_df.drop_duplicates().reset_index(drop=True)
     return out_df
 
-
 def dedupe_feature_frame(df, family_name, logger):
     if df.empty:
         return df, 0
@@ -280,46 +460,62 @@ def dedupe_feature_frame(df, family_name, logger):
 
     return exact_deduped, duplicate_count
 
-
 def merge_with_issue_fallback(base_df, add_df, family_name):
     if base_df.empty or add_df.empty:
         return base_df.copy()
 
     add_df = add_df.copy()
-    non_key_cols = [col for col in add_df.columns if col not in {"repo_full_name", "issue_id", "issue_number"}]
+    key_columns = {"repo_full_name", "issue_id", "issue_number"}
+    non_key_cols = [col for col in add_df.columns if col not in key_columns]
     if not non_key_cols:
         return base_df.copy()
 
-    # merge by issue_id where possible
     id_ready = add_df[add_df["issue_id"].apply(has_real_value)].copy()
     num_ready = add_df[add_df["issue_number"].notna()].copy()
 
     out_df = base_df.copy()
+
     if not id_ready.empty:
-        by_id = out_df.merge(id_ready[["repo_full_name", "issue_id"] + non_key_cols], on=["repo_full_name", "issue_id"], how="left")
+        id_merge_cols = ["repo_full_name", "issue_id"] + non_key_cols
+        by_id = out_df.merge(
+            id_ready[id_merge_cols],
+            on=["repo_full_name", "issue_id"],
+            how="left",
+        )
     else:
-        by_id = out_df.copy()
-        for col in non_key_cols:
-            if col not in by_id.columns:
-                by_id[col] = pd.NA
+        by_id = pd.DataFrame(index=out_df.index)
 
     if not num_ready.empty:
-        num_merge_cols = ["repo_full_name", "issue_number"] + [col for col in non_key_cols if col not in {"issue_id"}]
-        by_num = out_df.merge(num_ready[num_merge_cols], on=["repo_full_name", "issue_number"], how="left", suffixes=("", f"__{family_name}__num"))
+        num_merge_cols = ["repo_full_name", "issue_number"] + non_key_cols
+        by_num = out_df.merge(
+            num_ready[num_merge_cols],
+            on=["repo_full_name", "issue_number"],
+            how="left",
+            suffixes=("", f"__{family_name}__num"),
+        )
     else:
-        by_num = out_df.copy()
-        for col in non_key_cols:
-            if col not in by_num.columns:
-                by_num[col] = pd.NA
+        by_num = pd.DataFrame(index=out_df.index)
 
-    merged = out_df.copy()
+    combined_columns = {}
     for col in non_key_cols:
-        id_series = by_id[col] if col in by_id.columns else pd.Series(pd.NA, index=merged.index)
-        num_series = by_num[col] if col in by_num.columns else pd.Series(pd.NA, index=merged.index)
-        merged[col] = id_series.combine_first(num_series)
+        id_series = by_id[col] if col in by_id.columns else pd.Series(pd.NA, index=out_df.index)
+        num_series = by_num[col] if col in by_num.columns else pd.Series(pd.NA, index=out_df.index)
+        combined_columns[col] = id_series.reset_index(drop=True).combine_first(
+            num_series.reset_index(drop=True)
+        )
 
-    return merged
+    additions_df = pd.DataFrame(combined_columns, index=out_df.index)
 
+    output_base = out_df.drop(columns=[col for col in non_key_cols if col in out_df.columns], errors="ignore")
+    merged = pd.concat(
+        [
+            output_base.reset_index(drop=True),
+            additions_df.reset_index(drop=True),
+        ],
+        axis=1,
+    )
+
+    return merged.copy()
 
 def reconcile_shared_columns(df, left_col, right_col, canonical_col, qa_metrics):
     if left_col not in df.columns and right_col not in df.columns:
@@ -334,21 +530,149 @@ def reconcile_shared_columns(df, left_col, right_col, canonical_col, qa_metrics)
     df[canonical_col] = left_series.combine_first(right_series)
     return df
 
+def add_rq2_ownership_defaults_and_derived_fields(df):
+    out_df = df.copy()
+
+    string_defaults = {
+        "top_commenter_contributor_key": None,
+        "participant_role_file_coverage_flag": "missing",
+        "top_pre_issue_owner_contributor_key": None,
+    }
+
+    numeric_defaults = {}
+
+    for column in RQ2_BINARY_COLUMNS:
+        numeric_defaults[column] = 0
+
+    for column in RQ2_COUNT_COLUMNS:
+        numeric_defaults[column] = 0
+
+    for column in RQ2_SHARE_COLUMNS:
+        numeric_defaults[column] = pd.NA
+
+    default_columns = {}
+    for column, default_value in string_defaults.items():
+        if column not in out_df.columns:
+            default_columns[column] = pd.Series(default_value, index=out_df.index)
+
+    for column, default_value in numeric_defaults.items():
+        if column not in out_df.columns:
+            default_columns[column] = pd.Series(default_value, index=out_df.index)
+
+    if default_columns:
+        out_df = pd.concat([out_df, pd.DataFrame(default_columns, index=out_df.index)], axis=1).copy()
+
+    for column in RQ2_BINARY_COLUMNS:
+        if column in out_df.columns:
+            out_df[column] = pd.to_numeric(out_df[column], errors="coerce").fillna(0).astype(int)
+
+    for column in RQ2_COUNT_COLUMNS:
+        if column in out_df.columns:
+            out_df[column] = pd.to_numeric(out_df[column], errors="coerce").fillna(0)
+
+    for column in RQ2_SHARE_COLUMNS:
+        if column in out_df.columns:
+            out_df[column] = pd.to_numeric(out_df[column], errors="coerce")
+
+    if "participant_role_file_coverage_flag" in out_df.columns:
+        out_df["participant_role_file_coverage_flag"] = (
+            out_df["participant_role_file_coverage_flag"]
+            .fillna("missing")
+            .astype(str)
+            .str.strip()
+            .replace({"": "missing", "nan": "missing", "None": "missing", "<NA>": "missing"})
+        )
+
+    out_df["has_post_issue_ownership"] = (
+        (pd.to_numeric(out_df.get("ownership_post_issue_contributor_count", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("ownership_has_post_issue_ownership", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("post_issue_owner_count_for_continuity", 0), errors="coerce").fillna(0) > 0)
+    ).astype(int)
+
+    out_df["has_pre_issue_issue_linked_ownership"] = (
+        (pd.to_numeric(out_df.get("ownership_pre_issue_contributor_count", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("ownership_has_pre_issue_ownership", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("pre_issue_owner_count_for_continuity", 0), errors="coerce").fillna(0) > 0)
+    ).astype(int)
+
+    out_df["has_repo_participant_role_signal"] = (
+        (pd.to_numeric(out_df.get("issue_author_is_pre_issue_repo_contributor", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("any_commenter_is_pre_issue_repo_contributor", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("top_commenter_is_pre_issue_repo_contributor", 0), errors="coerce").fillna(0) > 0)
+    ).astype(int)
+
+    out_df["has_file_participant_role_signal"] = (
+        (pd.to_numeric(out_df.get("participant_role_file_features_applicable", 0), errors="coerce").fillna(0) > 0)
+        & (
+            (pd.to_numeric(out_df.get("issue_author_is_pre_issue_file_contributor", 0), errors="coerce").fillna(0) > 0)
+            | (pd.to_numeric(out_df.get("any_commenter_is_pre_issue_file_contributor", 0), errors="coerce").fillna(0) > 0)
+            | (pd.to_numeric(out_df.get("top_commenter_is_pre_issue_file_contributor", 0), errors="coerce").fillna(0) > 0)
+        )
+    ).astype(int)
+
+    out_df["has_continuity_signal"] = (
+        (pd.to_numeric(out_df.get("any_post_issue_owner_with_pre_issue_repo_history", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("any_post_issue_owner_with_pre_issue_file_history", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("any_commenter_is_eventual_post_issue_owner", 0), errors="coerce").fillna(0) > 0)
+    ).astype(int)
+
+    return out_df.copy()
 
 def add_family_presence_flags(df):
     out_df = df.copy()
+
     out_df["has_sentiment_features"] = out_df.get("__has_sentiment", 0).fillna(0).astype(int)
     out_df["has_participation_features"] = out_df.get("__has_participation", 0).fillna(0).astype(int)
 
-    ownership_flag_col = "ownership_feature_coverage_flag"
-    if ownership_flag_col in out_df.columns:
-        hard_missing = {"no_file_links", "no_commit_matches", "no_resolved_commit_authors", "missing_issue_created_at"}
-        out_df["has_ownership_features"] = (~out_df[ownership_flag_col].isin(hard_missing) & out_df[ownership_flag_col].notna()).astype(int)
+    ownership_flag_col = find_first_present_column(
+        out_df,
+        [
+            "ownership_feature_coverage_flag",
+            "ownership_coverage_flag",
+        ],
+    )
+
+    if ownership_flag_col is not None:
+        hard_missing = {
+            "no_file_links",
+            "no_commit_matches",
+            "no_resolved_commit_authors",
+            "missing_issue_created_at",
+        }
+        out_df["has_direct_issue_linked_ownership_features"] = (
+            ~out_df[ownership_flag_col].isin(hard_missing)
+            & out_df[ownership_flag_col].notna()
+        ).astype(int)
     else:
-        out_df["has_ownership_features"] = out_df.get("__has_ownership", 0).fillna(0).astype(int)
+        out_df["has_direct_issue_linked_ownership_features"] = out_df.get("__has_ownership", 0).fillna(0).astype(int)
 
-    return out_df
+    out_df["has_repo_participant_role_features"] = (
+        (pd.to_numeric(out_df.get("issue_author_has_resolved_key", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("commenter_count_with_resolved_key", 0), errors="coerce").fillna(0) > 0)
+    ).astype(int)
 
+    out_df["has_file_participant_role_features"] = (
+        pd.to_numeric(out_df.get("participant_role_file_features_applicable", 0), errors="coerce")
+        .fillna(0)
+        .astype(int)
+    )
+
+    out_df["has_continuity_features"] = (
+        pd.to_numeric(out_df.get("post_issue_owner_count_for_continuity", 0), errors="coerce")
+        .fillna(0)
+        .gt(0)
+        .astype(int)
+    )
+
+    out_df["has_ownership_features"] = (
+        (out_df.get("__has_ownership", 0).fillna(0).astype(int) > 0)
+        | (out_df["has_repo_participant_role_features"] > 0)
+        | (out_df["has_file_participant_role_features"] > 0)
+        | (out_df["has_direct_issue_linked_ownership_features"] > 0)
+        | (out_df["has_continuity_features"] > 0)
+    ).astype(int)
+
+    return out_df.copy()
 
 def add_rq_usability_flags(df, config):
     out_df = df.copy()
@@ -359,27 +683,67 @@ def add_rq_usability_flags(df, config):
     rq1_mask = pd.Series(True, index=out_df.index)
 
     if require_sentiment_for_rq1:
-        rq1_mask = rq1_mask & out_df["has_sentiment_features"].eq(1)
+        if "has_sentiment_features" in out_df.columns:
+            rq1_mask = rq1_mask & out_df["has_sentiment_features"].eq(1)
+        else:
+            rq1_mask = rq1_mask & False
 
     if require_participation_for_rq1:
-        rq1_mask = rq1_mask & out_df["has_participation_features"].eq(1)
+        if "has_participation_features" in out_df.columns:
+            rq1_mask = rq1_mask & out_df["has_participation_features"].eq(1)
+        else:
+            rq1_mask = rq1_mask & False
 
     out_df["usable_for_rq1"] = rq1_mask.astype(int)
+
+    out_df["usable_for_rq2_repo_participant_roles"] = (
+        (pd.to_numeric(out_df.get("issue_author_has_resolved_key", 0), errors="coerce").fillna(0) > 0)
+        | (pd.to_numeric(out_df.get("commenter_count_with_resolved_key", 0), errors="coerce").fillna(0) > 0)
+    ).astype(int)
+
+    out_df["usable_for_rq2_file_participant_roles"] = (
+        pd.to_numeric(out_df.get("participant_role_file_features_applicable", 0), errors="coerce")
+        .fillna(0)
+        .astype(int)
+    )
+
+    ownership_coverage_col = find_first_present_column(
+        out_df,
+        [
+            "ownership_feature_coverage_flag",
+            "ownership_coverage_flag",
+        ],
+    )
+
+    if ownership_coverage_col is not None:
+        ownership_coverage = out_df[ownership_coverage_col]
+    else:
+        ownership_coverage = pd.Series(pd.NA, index=out_df.index)
 
     acceptable_flags = {"ok"}
     if ownership_include_sparse:
         acceptable_flags.add("sparse_evidence")
 
-    if "ownership_feature_coverage_flag" in out_df.columns:
-        ownership_flags = out_df["ownership_feature_coverage_flag"]
+    out_df["usable_for_rq2_direct_ownership"] = ownership_coverage.isin(acceptable_flags).astype(int)
+    out_df["usable_for_rq2_direct_ownership_strict"] = ownership_coverage.eq("ok").astype(int)
+
+    out_df["usable_for_rq2_continuity"] = (
+        pd.to_numeric(out_df.get("post_issue_owner_count_for_continuity", 0), errors="coerce")
+        .fillna(0)
+        .gt(0)
+        .astype(int)
+    )
+
+    out_df["usable_for_rq2"] = out_df["usable_for_rq2_repo_participant_roles"].astype(int)
+
+    out_df["usable_for_rq2_strict"] = out_df["usable_for_rq2_direct_ownership_strict"].astype(int)
+
+    if "has_participation_features" in out_df.columns:
+        out_df["usable_for_rq3"] = out_df["has_participation_features"].eq(1).astype(int)
     else:
-        ownership_flags = pd.Series(pd.NA, index=out_df.index)
+        out_df["usable_for_rq3"] = 0
 
-    out_df["usable_for_rq2"] = ownership_flags.isin(acceptable_flags).astype(int)
-    out_df["usable_for_rq2_strict"] = ownership_flags.eq("ok").astype(int)
-
-    return out_df
-
+    return out_df.copy()
 
 def build_rq_views(full_df, config):
     rq1_df = full_df[full_df["usable_for_rq1"] == 1].copy()
@@ -390,9 +754,16 @@ def build_rq_views(full_df, config):
     else:
         rq2_df = full_df.copy()
 
-    rq3_issue_base_df = full_df.copy()
-    return rq1_df.reset_index(drop=True), rq2_df.reset_index(drop=True), rq3_issue_base_df.reset_index(drop=True)
+    if "usable_for_rq3" in full_df.columns:
+        rq3_issue_base_df = full_df[full_df["usable_for_rq3"] == 1].copy()
+    else:
+        rq3_issue_base_df = full_df.copy()
 
+    return (
+        rq1_df.reset_index(drop=True).copy(),
+        rq2_df.reset_index(drop=True).copy(),
+        rq3_issue_base_df.reset_index(drop=True).copy(),
+    )
 
 def build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_issue_base_df, qa_metrics):
     rows = []
@@ -415,6 +786,26 @@ def build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_issue_base_df, qa_metrics
         add("rows_with_ownership_features", int(full_df["has_ownership_features"].sum()))
         add("rows_usable_for_rq1", int(full_df["usable_for_rq1"].sum()))
         add("rows_usable_for_rq2", int(full_df["usable_for_rq2"].sum()))
+        add(
+            "rows_usable_for_rq2_repo_participant_roles",
+            int(full_df.get("usable_for_rq2_repo_participant_roles", pd.Series(0, index=full_df.index)).sum()),
+        )
+        add(
+            "rows_usable_for_rq2_file_participant_roles",
+            int(full_df.get("usable_for_rq2_file_participant_roles", pd.Series(0, index=full_df.index)).sum()),
+        )
+        add(
+            "rows_usable_for_rq2_direct_ownership",
+            int(full_df.get("usable_for_rq2_direct_ownership", pd.Series(0, index=full_df.index)).sum()),
+        )
+        add(
+            "rows_usable_for_rq2_direct_ownership_strict",
+            int(full_df.get("usable_for_rq2_direct_ownership_strict", pd.Series(0, index=full_df.index)).sum()),
+        )
+        add(
+            "rows_usable_for_rq2_continuity",
+            int(full_df.get("usable_for_rq2_continuity", pd.Series(0, index=full_df.index)).sum()),
+        )
         add("rows_usable_for_rq2_strict", int(full_df["usable_for_rq2_strict"].sum()))
 
         if "analysis_set" in full_df.columns:
@@ -425,9 +816,23 @@ def build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_issue_base_df, qa_metrics
             for key, value in full_df["comparison_group"].fillna("missing").astype(str).value_counts(dropna=False).items():
                 add(f"comparison_group_count__{key}", int(value))
 
-        if "ownership_feature_coverage_flag" in full_df.columns:
-            for key, value in full_df["ownership_feature_coverage_flag"].fillna("missing").astype(str).value_counts(dropna=False).items():
-                add(f"ownership_coverage_count__{key}", int(value))
+        if "participant_role_file_coverage_flag" in full_df.columns:
+            for key, value in full_df["participant_role_file_coverage_flag"].fillna("missing").astype(str).value_counts(
+                    dropna=False).items():
+                add(f"participant_role_file_coverage_count__{key}", int(value))
+
+        for column_name in [
+            "has_repo_participant_role_signal",
+            "has_file_participant_role_signal",
+            "has_continuity_signal",
+            "has_direct_issue_linked_ownership_features",
+            "has_repo_participant_role_features",
+            "has_file_participant_role_features",
+            "has_continuity_features",
+        ]:
+            if column_name in full_df.columns:
+                add(f"rows_with__{column_name}",
+                    int(pd.to_numeric(full_df[column_name], errors="coerce").fillna(0).sum()))
 
         if "participation_feature_coverage_flag" in full_df.columns:
             for key, value in full_df["participation_feature_coverage_flag"].fillna("missing").astype(str).value_counts(dropna=False).items():
@@ -443,7 +848,6 @@ def build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_issue_base_df, qa_metrics
 
     return rows
 
-
 def sort_output_frame(df):
     if df.empty:
         return df
@@ -451,7 +855,6 @@ def sort_output_frame(df):
     if not sort_columns:
         return df.reset_index(drop=True)
     return df.sort_values(sort_columns, kind="stable").reset_index(drop=True)
-
 
 def load_input_frames(config, logger):
     merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
@@ -485,7 +888,6 @@ def load_input_frames(config, logger):
         "duplicate_ownership_keys_detected": int(ownership_dupes),
     }
     return population_df, issues_resolved_df, repositories_df, sentiment_df, participation_df, ownership_df, qa_metrics
-
 
 def build_full_analysis_dataset(config, logger):
     (
@@ -544,6 +946,7 @@ def build_full_analysis_dataset(config, logger):
                 full_df[base_name] = left_series.combine_first(right_series)
             full_df = full_df.drop(columns=[col for col in [left_col, right_col] if col in full_df.columns], errors="ignore")
 
+    full_df = add_rq2_ownership_defaults_and_derived_fields(full_df)
     full_df = add_family_presence_flags(full_df)
     full_df = add_rq_usability_flags(full_df, config)
 
@@ -556,16 +959,41 @@ def build_full_analysis_dataset(config, logger):
             full_df[date_col] = safe_to_datetime(full_df[date_col])
 
     full_df = sort_output_frame(full_df)
-    qa_metrics["population_rows_final_pre_filter"] = int(len(full_df))
-    return full_df, qa_metrics
 
+    qa_metrics["population_rows_final_pre_filter"] = int(len(full_df))
+    qa_metrics["population_rows_final"] = int(len(full_df))
+    qa_metrics["rows_with_sentiment_features"] = int(full_df["has_sentiment_features"].sum())
+    qa_metrics["rows_with_participation_features"] = int(full_df["has_participation_features"].sum())
+    qa_metrics["rows_with_ownership_features"] = int(full_df["has_ownership_features"].sum())
+    qa_metrics["rows_usable_for_rq1"] = int(full_df["usable_for_rq1"].sum())
+    qa_metrics["rows_usable_for_rq2"] = int(full_df["usable_for_rq2"].sum())
+    qa_metrics["rows_usable_for_rq2_repo_participant_roles"] = int(
+        full_df.get("usable_for_rq2_repo_participant_roles", pd.Series(0, index=full_df.index)).sum()
+    )
+    qa_metrics["rows_usable_for_rq2_file_participant_roles"] = int(
+        full_df.get("usable_for_rq2_file_participant_roles", pd.Series(0, index=full_df.index)).sum()
+    )
+    qa_metrics["rows_usable_for_rq2_direct_ownership"] = int(
+        full_df.get("usable_for_rq2_direct_ownership", pd.Series(0, index=full_df.index)).sum()
+    )
+    qa_metrics["rows_usable_for_rq2_direct_ownership_strict"] = int(
+        full_df.get("usable_for_rq2_direct_ownership_strict", pd.Series(0, index=full_df.index)).sum()
+    )
+    qa_metrics["rows_usable_for_rq2_continuity"] = int(
+        full_df.get("usable_for_rq2_continuity", pd.Series(0, index=full_df.index)).sum()
+    )
+    qa_metrics["rows_usable_for_rq2_strict"] = int(full_df["usable_for_rq2_strict"].sum())
+    qa_metrics["rows_usable_for_rq3"] = int(
+        full_df.get("usable_for_rq3", pd.Series(0, index=full_df.index)).sum()
+    )
+
+    return full_df, qa_metrics
 
 def write_run_manifest(run_manifest_path, payload):
     run_manifest_path = Path(run_manifest_path)
     run_manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with run_manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, default=str)
-
 
 def main(config_path=None):
     config_path = Path(config_path or DEFAULT_CONFIG_PATH)

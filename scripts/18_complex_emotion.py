@@ -1,0 +1,488 @@
+import json
+import logging
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+import pandas as pd
+import torch
+from transformers import pipeline
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from config.study_config_loader import ensure_project_directories, load_study_config
+from utils.checkpoints import get_batch_root, get_stage_option, reset_batch_root, sanitize_repo_name, should_skip_repo, write_repo_checkpoint
+from utils.io_helpers import clean_text, collect_repo_part_files, load_repo_list, load_table, repo_filter, write_merged_or_partitioned_output, write_summary_csv
+
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "study_config.yaml"
+LOG_FILENAME = "18_complex_emotion.log"
+CHECKPOINT_PREFIX = "18_complex_emotion"
+BATCH_FOLDER_NAME = "emotion_features"
+RAW_FOLDER_NAME = "emotion_features"
+
+# Truncate text to 1500 chars to safely stay under DistilRoBERTa's 512 token limit
+MAX_CHARS = 1500 
+
+
+def setup_logger(config):
+    logger = logging.getLogger("build_emotion_features")
+    logger.setLevel(getattr(logging, config.logging.level.upper(), logging.INFO))
+    logger.handlers.clear()
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    
+    if config.logging.log_to_console:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+    if config.logging.log_to_file:
+        log_dir = Path(config.logging.extraction_log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_dir / LOG_FILENAME, encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        
+    return logger
+
+
+def load_stage_inputs_for_repo(config, repo_full_name):
+    """Loads the resolved issues and comments to extract text bodies."""
+    merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
+    issues_df = load_table(config.outputs.issues_resolved_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
+    comments_df = load_table(config.outputs.issue_comments_resolved_table, repo_full_name=repo_full_name, merge_mode=merge_mode)
+    
+    return {
+        "issues": repo_filter(issues_df, repo_full_name),
+        "comments": repo_filter(comments_df, repo_full_name)
+    }
+
+
+def new_repo_result(repo_full_name, repo_id=None):
+    return {
+        "repo_full_name": repo_full_name,
+        "repo_id": repo_id,
+        "status": "started",
+        "issues_processed": 0,
+        "comments_processed": 0,
+        "issue_comment_summaries_written": 0,
+        "emotion_rows_written": 0,
+        "error_message": "",
+    }
+
+
+def get_emotion_model():
+    """Initializes the Hugging Face pipeline for emotion classification."""
+    device = 0 if torch.cuda.is_available() else -1
+    return pipeline(
+        "text-classification",
+        model="j-hartmann/emotion-english-distilroberta-base",
+        top_k=None,
+        device=device
+    )
+
+
+def format_ranked_emotions(emotion_scores):
+    """
+    Converts a list of emotion score dicts into a readable ranked string.
+
+    Example:
+    joy:0.8123; neutral:0.0921; sadness:0.0502
+    """
+    if not emotion_scores:
+        return None
+
+    ranked = sorted(
+        [item for item in emotion_scores if item.get("score", 0) > 0],
+        key=lambda item: item.get("score", 0),
+        reverse=True
+    )
+
+    if not ranked:
+        return None
+
+    return "; ".join(
+        f"{item.get('label')}:{item.get('score'):.6f}"
+        for item in ranked
+    )
+
+
+def normalize_emotion_output(out):
+    """
+    Handles the possible output shapes from Hugging Face pipelines.
+
+    Expected with return_all_scores=True:
+    [
+        {"label": "anger", "score": 0.1},
+        {"label": "joy", "score": 0.8},
+        ...
+    ]
+
+    This function keeps only scores above zero and sorts by confidence.
+    """
+    if not out:
+        return []
+
+    if isinstance(out, dict):
+        out = [out]
+
+    if isinstance(out, list) and len(out) == 1 and isinstance(out[0], list):
+        out = out[0]
+
+    emotion_scores = []
+    for item in out:
+        if not isinstance(item, dict):
+            continue
+
+        label = item.get("label")
+        score = item.get("score")
+
+        if label is None or score is None:
+            continue
+
+        score = float(score)
+
+        if score > 0:
+            emotion_scores.append({
+                "label": label,
+                "score": score
+            })
+
+    emotion_scores = sorted(
+        emotion_scores,
+        key=lambda item: item["score"],
+        reverse=True
+    )
+
+    return emotion_scores
+
+
+def extract_emotions(texts, classifier, batch_size=32):
+    """Processes a list of texts in batches through the HF pipeline."""
+    # Clean and truncate texts to avoid token limit crashes
+    safe_texts = [str(t)[:MAX_CHARS] if pd.notna(t) and t else "" for t in texts]
+    
+    results = []
+    try:
+        outputs = classifier(safe_texts, batch_size=batch_size, truncation=True)
+
+        for out, original_text in zip(outputs, safe_texts):
+            if not original_text.strip():
+                results.append({
+                    "dominant_emotion": None,
+                    "emotion_confidence": None,
+                    "all_emotions_ranked": None,
+                    "all_emotions_json": None,
+                    "emotion_scores": []
+                })
+            else:
+                emotion_scores = normalize_emotion_output(out)
+
+                if emotion_scores:
+                    dominant = emotion_scores[0]
+                    results.append({
+                        "dominant_emotion": dominant["label"],
+                        "emotion_confidence": dominant["score"],
+                        "all_emotions_ranked": format_ranked_emotions(emotion_scores),
+                        "all_emotions_json": json.dumps(emotion_scores),
+                        "emotion_scores": emotion_scores
+                    })
+                else:
+                    results.append({
+                        "dominant_emotion": None,
+                        "emotion_confidence": None,
+                        "all_emotions_ranked": None,
+                        "all_emotions_json": None,
+                        "emotion_scores": []
+                    })
+
+    except Exception as e:
+        logging.error(f"Batch inference failed: {e}")
+        # Fallback to nulls if a batch completely fails
+        results = [
+            {
+                "dominant_emotion": None,
+                "emotion_confidence": None,
+                "all_emotions_ranked": None,
+                "all_emotions_json": None,
+                "emotion_scores": []
+            }
+            for _ in texts
+        ]
+        
+    return results
+
+
+def summarize_issue_comment_sentiment(comment_emotion_rows):
+    """
+    Builds one sentiment/emotion summary row per issue from all comments.
+
+    The summary ranks emotions by:
+    1. number of comments where that emotion was dominant
+    2. average confidence for that emotion
+    """
+    if not comment_emotion_rows:
+        return []
+
+    comments_df = pd.DataFrame(comment_emotion_rows)
+
+    if comments_df.empty or "issue_number" not in comments_df.columns:
+        return []
+
+    summary_rows = []
+
+    for issue_number, group in comments_df.groupby("issue_number", dropna=False):
+        valid_group = group[group["dominant_emotion"].notna()].copy()
+
+        if valid_group.empty:
+            summary_rows.append({
+                "repo_full_name": group["repo_full_name"].iloc[0],
+                "issue_number": issue_number,
+                "comment_id": None,
+                "text_source": "issue_comment_sentiment_summary",
+                "author_login": None,
+                "dominant_emotion": None,
+                "emotion_confidence": None,
+                "all_emotions_ranked": None,
+                "all_emotions_json": None,
+                "comment_count_for_issue": len(group),
+                "sentiment_summary": "No valid comment emotions detected."
+            })
+            continue
+
+        emotion_summary = (
+            valid_group
+            .groupby("dominant_emotion")
+            .agg(
+                emotion_comment_count=("dominant_emotion", "size"),
+                average_confidence=("emotion_confidence", "mean")
+            )
+            .reset_index()
+            .sort_values(
+                by=["emotion_comment_count", "average_confidence"],
+                ascending=[False, False]
+            )
+        )
+
+        dominant_summary_emotion = emotion_summary.iloc[0]["dominant_emotion"]
+        dominant_summary_confidence = float(emotion_summary.iloc[0]["average_confidence"])
+
+        summary_text_parts = []
+        summary_json_items = []
+
+        for _, row in emotion_summary.iterrows():
+            emotion = row["dominant_emotion"]
+            count = int(row["emotion_comment_count"])
+            avg_conf = float(row["average_confidence"])
+
+            summary_text_parts.append(
+                f"{emotion}: count={count}, avg_confidence={avg_conf:.6f}"
+            )
+
+            summary_json_items.append({
+                "emotion": emotion,
+                "comment_count": count,
+                "average_confidence": avg_conf
+            })
+
+        summary_rows.append({
+            "repo_full_name": group["repo_full_name"].iloc[0],
+            "issue_number": issue_number,
+            "comment_id": None,
+            "text_source": "issue_comment_sentiment_summary",
+            "author_login": None,
+            "dominant_emotion": dominant_summary_emotion,
+            "emotion_confidence": dominant_summary_confidence,
+            "all_emotions_ranked": "; ".join(summary_text_parts),
+            "all_emotions_json": json.dumps(summary_json_items),
+            "comment_count_for_issue": len(group),
+            "sentiment_summary": (
+                f"Across {len(group)} comments, the most common detected emotion was "
+                f"{dominant_summary_emotion} with an average confidence of "
+                f"{dominant_summary_confidence:.6f}. Full ranking: "
+                f"{'; '.join(summary_text_parts)}"
+            )
+        })
+
+    return summary_rows
+
+
+def process_repo(config, logger, repo_row, classifier):
+    repo_full_name = repo_row["full_name"]
+    result = new_repo_result(repo_full_name, repo_row.get("repo_id"))
+    
+    stage_inputs = load_stage_inputs_for_repo(config, repo_full_name)
+    issues_df = stage_inputs["issues"]
+    comments_df = stage_inputs["comments"]
+
+    if issues_df.empty and comments_df.empty:
+        result["status"] = "completed"
+        return result
+
+    emotion_rows = []
+    comment_emotion_rows = []
+    hf_batch_size = get_stage_option(config, "emotion_features", "hf_batch_size", 32)
+
+    if not issues_df.empty and "body" in issues_df.columns:
+        valid_issues = issues_df[issues_df["body"].notna()].copy()
+        result["issues_processed"] = len(valid_issues)
+        
+        if not valid_issues.empty:
+            logger.info("Extracting emotions for %s issue bodies in %s", len(valid_issues), repo_full_name)
+            emotions = extract_emotions(valid_issues["body"].tolist(), classifier, batch_size=hf_batch_size)
+            
+            for idx, (_, row) in enumerate(valid_issues.iterrows()):
+                emotion_rows.append({
+                    "repo_full_name": repo_full_name,
+                    "issue_number": row.get("issue_number"),
+                    "comment_id": None,
+                    "text_source": "issue_body",
+                    "author_login": row.get("author_login"),
+                    "dominant_emotion": emotions[idx]["dominant_emotion"],
+                    "emotion_confidence": emotions[idx]["emotion_confidence"],
+                    "all_emotions_ranked": emotions[idx]["all_emotions_ranked"],
+                    "all_emotions_json": emotions[idx]["all_emotions_json"],
+                    "comment_count_for_issue": None,
+                    "sentiment_summary": None
+                })
+
+    if not comments_df.empty and "body" in comments_df.columns:
+        valid_comments = comments_df[comments_df["body"].notna()].copy()
+        result["comments_processed"] = len(valid_comments)
+        
+        if not valid_comments.empty:
+            logger.info("Extracting emotions for %s comments in %s", len(valid_comments), repo_full_name)
+            emotions = extract_emotions(valid_comments["body"].tolist(), classifier, batch_size=hf_batch_size)
+            
+            for idx, (_, row) in enumerate(valid_comments.iterrows()):
+                comment_row = {
+                    "repo_full_name": repo_full_name,
+                    "issue_number": row.get("issue_number"),
+                    "comment_id": row.get("comment_id"),
+                    "text_source": "issue_comment",
+                    "author_login": row.get("author_login"),
+                    "dominant_emotion": emotions[idx]["dominant_emotion"],
+                    "emotion_confidence": emotions[idx]["emotion_confidence"],
+                    "all_emotions_ranked": emotions[idx]["all_emotions_ranked"],
+                    "all_emotions_json": emotions[idx]["all_emotions_json"],
+                    "comment_count_for_issue": None,
+                    "sentiment_summary": None
+                }
+
+                emotion_rows.append(comment_row)
+                comment_emotion_rows.append(comment_row)
+
+    issue_comment_summary_rows = summarize_issue_comment_sentiment(comment_emotion_rows)
+
+    if issue_comment_summary_rows:
+        emotion_rows.extend(issue_comment_summary_rows)
+        result["issue_comment_summaries_written"] = len(issue_comment_summary_rows)
+
+    if emotion_rows:
+        emotion_df = pd.DataFrame(emotion_rows)
+        repo_dir = get_batch_root(config, BATCH_FOLDER_NAME) / sanitize_repo_name(repo_full_name)
+        repo_dir.mkdir(parents=True, exist_ok=True)
+        
+        output_file = repo_dir / "emotion_features_part_0001.parquet"
+        emotion_df.to_parquet(output_file, index=False)
+        result["emotion_rows_written"] = len(emotion_rows)
+
+    result["status"] = "completed"
+    return result
+
+
+def merge_emotion_batches(config, logger):
+    batch_root = get_batch_root(config, BATCH_FOLDER_NAME)
+    if not batch_root.exists():
+        logger.warning("Emotion batch root does not exist: %s", batch_root)
+        return
+
+    repo_parts = collect_repo_part_files(batch_root, "emotion_features_part_*.parquet")
+    
+    # Define your final output path. Ensure this is added to study_config.yaml under outputs!
+    output_path = getattr(config.outputs, "emotion_features_table", "data/features/emotion_features.parquet")
+    
+    if repo_parts:
+        mode_used = write_merged_or_partitioned_output(
+            repo_part_map=repo_parts,
+            output_path=output_path,
+            config=config,
+            table_name="emotion_features",
+            sort_columns=["repo_full_name", "issue_number", "comment_id", "text_source"],
+        )
+        logger.info("Wrote emotion features using %s mode to %s", mode_used, output_path)
+    else:
+        logger.warning("No emotion feature parts found to merge.")
+
+
+def write_run_manifest(repo_rows, summary_rows, config):
+    manifest_path = Path(config.logging.extraction_log_dir) / "18_complex_emotion_manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "script": "18_complex_emotion.py",
+        "repo_count_requested": len(repo_rows),
+        "repo_count_processed": len(summary_rows),
+        "completed_repo_count": sum(1 for row in summary_rows if row.get("status") == "completed"),
+        "failed_repo_count": sum(1 for row in summary_rows if row.get("status") == "failed"),
+        "generated_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "summary_rows": summary_rows,
+    }
+    with manifest_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
+def main():
+    config = load_study_config(DEFAULT_CONFIG_PATH)
+    ensure_project_directories(config)
+    logger = setup_logger(config)
+
+    repo_rows = load_repo_list(config.outputs.repo_included_list)
+    reset_batch_root(config, BATCH_FOLDER_NAME)
+
+    logger.info("Initializing Hugging Face Emotion Classifier...")
+    classifier = get_emotion_model()
+    logger.info("Model loaded successfully.")
+
+    summary_rows = []
+    for repo_row in repo_rows:
+        repo_full_name = repo_row["full_name"]
+        
+        should_skip, reason = should_skip_repo(
+            config,
+            repo_full_name,
+            checkpoint_prefix=CHECKPOINT_PREFIX,
+            raw_folder_name=RAW_FOLDER_NAME,
+            section_name="emotion_features",
+            raw_source="features",
+        )
+        
+        if should_skip:
+            logger.info("Skipping repo %s due to %s.", repo_full_name, reason)
+            summary_rows.append({"repo_full_name": repo_full_name, "status": f"skipped_{reason}"})
+            continue
+
+        logger.info("Processing repo %s", repo_full_name)
+        try:
+            result = process_repo(config, logger, repo_row, classifier)
+        except Exception as exc:
+            logger.exception("Failed while building emotion features for %s", repo_full_name)
+            result = new_repo_result(repo_full_name, repo_row.get("repo_id"))
+            result["status"] = "failed"
+            result["error_message"] = str(exc)
+
+        write_repo_checkpoint(config, CHECKPOINT_PREFIX, repo_full_name, result)
+        summary_rows.append(result)
+
+    merge_emotion_batches(config, logger)
+    
+    summary_path = Path(config.logging.extraction_log_dir) / "18_complex_emotion_summary.csv"
+    write_summary_csv(summary_rows, summary_path)
+    write_run_manifest(repo_rows, summary_rows, config)
+    
+    logger.info("Emotion feature building complete. Repos processed: %s", len(summary_rows))
+
+
+if __name__ == "__main__":
+    main()

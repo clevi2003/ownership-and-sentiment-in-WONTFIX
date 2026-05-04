@@ -297,9 +297,110 @@ def new_repo_result(repo_full_name, repo_id=None):
         "total_selected_any_pre_issue_rows": 0,
         "total_selected_conservative_pre_issue_rows": 0,
 
-        "mean_pre_issue_high_confidence_contributor_count": None,
+        "selected_conservative_pre_issue_rows_with_pre_issue_bucket": 0,
+        "selected_conservative_pre_issue_rows_with_post_issue_bucket": 0,
+        "selected_conservative_pre_issue_rows_with_unknown_bucket": 0,
+        "selected_conservative_pre_issue_rows_with_pre_issue_leakage": 0,
+        "selected_conservative_pre_issue_rows_with_post_issue_leakage": 0,
+        "issues_with_selected_conservative_pre_issue_fallback_by_analysis_set": "{}",
+        "repo_participant_role_commit_rows_available": 0,
+        "repo_participant_role_distinct_contributors_available": 0,
+        "issues_with_issue_author_resolved_key": 0,
+        "issues_with_issue_author_pre_issue_repo_contributor": 0,
+        "issues_with_issue_author_pre_issue_major_repo_contributor": 0,
+
+        "issues_with_resolved_commenters": 0,
+        "issues_with_any_commenter_pre_issue_repo_contributor": 0,
+        "issues_with_any_commenter_pre_issue_major_repo_contributor": 0,
+
+        "issues_with_top_commenter_resolved_key": 0,
+        "issues_with_top_commenter_pre_issue_repo_contributor": 0,
+        "issues_with_top_commenter_pre_issue_major_repo_contributor": 0,
+
+        "participant_role_pre_issue_timestamp_missing_issues": 0,
+        "participant_role_pre_issue_commit_leakage_rows": 0,
+
+        "mean_share_commenters_pre_issue_repo_contributors": None,
+        "mean_share_commenters_pre_issue_major_repo_contributors": None,
+        "median_issue_author_pre_issue_repo_commit_count": None,
+        "median_commenter_count_with_resolved_key": None,
+
+        "file_participant_role_touch_rows_available": 0,
+        "file_participant_role_distinct_contributors_available": 0,
+        "file_participant_role_distinct_files_available": 0,
+
         "mean_pre_issue_any_contributor_count": None,
         "mean_pre_issue_conservative_fallback_contributor_count": None,
+        "median_commenter_count_pre_issue_repo_contributors": None,
+
+        "issues_with_pre_post_owner_overlap": 0,
+        "issues_with_any_pre_issue_owner_became_post_issue_owner": 0,
+        "issues_with_top_pre_issue_owner_became_post_issue_owner": 0,
+
+        "issues_with_post_issue_owners_with_pre_issue_repo_history": 0,
+        "issues_with_post_issue_owners_with_pre_issue_file_history": 0,
+
+        "issues_with_issue_author_as_post_issue_owner": 0,
+        "issues_with_issue_author_pre_issue_repo_contributor_became_post_issue_owner": 0,
+        "issues_with_issue_author_pre_issue_file_contributor_became_post_issue_owner": 0,
+
+        "issues_with_any_commenter_as_post_issue_owner": 0,
+        "issues_with_top_commenter_as_post_issue_owner": 0,
+        "issues_with_any_pre_issue_repo_contributor_commenter_as_post_issue_owner": 0,
+        "issues_with_any_pre_issue_file_contributor_commenter_as_post_issue_owner": 0,
+
+        "mean_pre_post_owner_jaccard": None,
+        "mean_share_post_issue_owners_with_pre_issue_repo_history": None,
+        "mean_share_post_issue_owners_with_pre_issue_file_history": None,
+        "mean_share_commenters_eventual_post_issue_owners": None,
+
+        "median_pre_post_owner_overlap_count": None,
+        "median_post_issue_owner_count_for_continuity": None,
+
+        "mean_pre_issue_high_confidence_contributor_count": None,
+        "issues_with_issue_author_pre_issue_major_file_contributor": 0,
+
+        "issues_with_any_commenter_pre_issue_file_contributor": 0,
+        "issues_with_any_commenter_pre_issue_major_file_contributor": 0,
+
+        "issues_with_top_commenter_pre_issue_file_contributor": 0,
+        "issues_with_top_commenter_pre_issue_major_file_contributor": 0,
+
+        "participant_role_file_pre_issue_timestamp_missing_issues": 0,
+        "participant_role_file_pre_issue_commit_leakage_rows": 0,
+
+        "mean_share_commenters_pre_issue_file_contributors": None,
+        "mean_share_commenters_pre_issue_major_file_contributors": None,
+        "median_issue_author_pre_issue_linked_file_commit_count": None,
+        "median_commenter_count_pre_issue_file_contributors": None,
+
+        "continuity_pre_issue_repo_timestamp_missing_issues": 0,
+        "continuity_pre_issue_repo_commit_leakage_rows": 0,
+        "continuity_pre_issue_file_timestamp_missing_issues": 0,
+        "continuity_pre_issue_file_commit_leakage_rows": 0,
+        "issues_with_participant_role_file_links": 0,
+        "issues_with_high_conf_participant_role_file_links": 0,
+        "total_participant_role_linked_files": 0,
+        "total_participant_role_high_conf_linked_files": 0,
+
+        "issues_with_participant_role_file_coverage_ok": 0,
+        "issues_with_participant_role_file_coverage_no_file_links": 0,
+        "issues_with_participant_role_file_coverage_no_high_conf_file_links": 0,
+        "issues_with_participant_role_file_coverage_no_pre_issue_file_history": 0,
+        "issues_with_participant_role_file_coverage_missing_issue_timestamp": 0,
+        "issues_with_participant_role_file_coverage_unknown": 0,
+        "participant_role_file_coverage_by_analysis_set": "{}",
+
+        "issues_with_participant_role_file_author_applicable": 0,
+        "issues_with_participant_role_file_commenter_applicable": 0,
+        "issues_with_participant_role_file_top_commenter_applicable": 0,
+        "issues_with_participant_role_file_pre_issue_history": 0,
+        "issues_with_participant_role_file_resolved_commenters": 0,
+
+        "mean_participant_role_linked_file_count_when_file_applicable": None,
+        "mean_participant_role_pre_issue_file_history_file_count": None,
+
+        "issues_with_issue_author_pre_issue_file_contributor": 0,
     }
 
 def build_repo_id_lookup(config):
@@ -429,6 +530,982 @@ def prepare_comment_frame(comments_df, target_issue_numbers):
         df["created_at"] = safe_to_datetime(df["created_at"])
     return df.reset_index(drop=True)
 
+def prepare_repo_contribution_history_frame(commits_resolved_df):
+    output_columns = [
+        "repo_full_name",
+        "commit_sha",
+        "commit_author_contributor_key",
+        "commit_timestamp",
+        "commit_day",
+    ]
+
+    if commits_resolved_df is None or commits_resolved_df.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    required_columns = ["repo_full_name", "commit_sha", "commit_author_contributor_key", "commit_timestamp"]
+    missing_columns = [column for column in required_columns if column not in commits_resolved_df.columns]
+    if missing_columns:
+        return pd.DataFrame(columns=output_columns)
+
+    df = commits_resolved_df[required_columns].copy()
+    df["repo_full_name"] = df["repo_full_name"].apply(clean_text)
+    df["commit_sha"] = df["commit_sha"].apply(clean_text)
+    df["commit_author_contributor_key"] = df["commit_author_contributor_key"].apply(clean_text)
+    df["commit_timestamp"] = safe_to_datetime(df["commit_timestamp"])
+
+    df = df[
+        df["repo_full_name"].notna()
+        & df["commit_sha"].notna()
+        & df["commit_author_contributor_key"].notna()
+        & df["commit_timestamp"].notna()
+    ].copy()
+
+    if df.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    df = df.drop_duplicates(
+        subset=["repo_full_name", "commit_sha", "commit_author_contributor_key"]
+    ).reset_index(drop=True)
+
+    df["commit_day"] = df["commit_timestamp"].dt.strftime("%Y-%m-%d")
+    return df[output_columns].reset_index(drop=True)
+
+def classify_pre_issue_major_repo_contributor(stats, config):
+    if not stats:
+        return 0
+
+    commit_count = int(pd.to_numeric(stats.get("commit_count"), errors="coerce") or 0)
+    distinct_days = int(pd.to_numeric(stats.get("distinct_days"), errors="coerce") or 0)
+    commit_share = pd.to_numeric(stats.get("commit_share"), errors="coerce")
+    rank = pd.to_numeric(stats.get("rank"), errors="coerce")
+
+    min_commits = int(get_ownership_option(config, "pre_issue_min_commits_for_major_repo_contributor", 2))
+    min_distinct_days = int(get_ownership_option(config, "pre_issue_min_distinct_days_for_major_repo_contributor", 1))
+    rank_threshold = int(get_ownership_option(config, "pre_issue_repo_major_contributor_rank_threshold", 5))
+    share_threshold = float(get_ownership_option(config, "pre_issue_repo_major_contributor_share_threshold", 0.05))
+
+    if commit_count < min_commits:
+        return 0
+    if distinct_days < min_distinct_days:
+        return 0
+
+    rank_ok = pd.notna(rank) and int(rank) <= rank_threshold
+    share_ok = pd.notna(commit_share) and float(commit_share) >= share_threshold
+
+    return 1 if rank_ok or share_ok else 0
+
+def build_pre_issue_repo_contributor_stats_for_issue(issue_row, repo_history_df, config):
+    issue_created_at = safe_to_datetime(issue_row.get("created_at"))
+    if pd.isna(issue_created_at):
+        return {}, 1, 0
+
+    if repo_history_df is None or repo_history_df.empty:
+        return {}, 0, 0
+
+    pre_df = repo_history_df[repo_history_df["commit_timestamp"] < issue_created_at].copy()
+    if pre_df.empty:
+        return {}, 0, 0
+
+    leakage_rows = int((pre_df["commit_timestamp"] >= issue_created_at).sum())
+
+    grouped = (
+        pre_df.groupby("commit_author_contributor_key", dropna=False)
+        .agg(
+            commit_count=("commit_sha", lambda series: int(pd.Series(series).dropna().nunique())),
+            distinct_days=("commit_day", lambda series: int(pd.Series(series).dropna().nunique())),
+        )
+        .reset_index()
+    )
+
+    grouped["commit_author_contributor_key"] = grouped["commit_author_contributor_key"].apply(clean_text)
+    grouped = grouped[grouped["commit_author_contributor_key"].notna()].copy()
+    if grouped.empty:
+        return {}, 0, leakage_rows
+
+    total_commits = int(grouped["commit_count"].sum())
+    if total_commits <= 0:
+        grouped["commit_share"] = 0.0
+    else:
+        grouped["commit_share"] = grouped["commit_count"] / float(total_commits)
+
+    grouped = grouped.sort_values(
+        ["commit_count", "commit_author_contributor_key"],
+        ascending=[False, True],
+        kind="stable",
+    ).reset_index(drop=True)
+    grouped["rank"] = grouped.index + 1
+
+    min_commits_for_contributor = int(
+        get_ownership_option(config, "pre_issue_min_commits_for_repo_contributor", 1)
+    )
+
+    stats_by_key = {}
+    for row in grouped.to_dict(orient="records"):
+        contributor_key = clean_text(row.get("commit_author_contributor_key"))
+        if not contributor_key:
+            continue
+
+        stats = {
+            "commit_count": int(row.get("commit_count") or 0),
+            "distinct_days": int(row.get("distinct_days") or 0),
+            "commit_share": float(row.get("commit_share") or 0.0),
+            "rank": int(row.get("rank") or 0),
+            "is_contributor": 1 if int(row.get("commit_count") or 0) >= min_commits_for_contributor else 0,
+        }
+        stats["is_major"] = classify_pre_issue_major_repo_contributor(stats, config)
+        stats_by_key[contributor_key] = stats
+
+    return stats_by_key, 0, leakage_rows
+
+def get_top_commenter_payload(issue_comments_df):
+    empty_payload = {
+        "top_commenter_contributor_key": None,
+        "top_commenter_comment_count": 0,
+    }
+
+    if issue_comments_df is None or issue_comments_df.empty:
+        return empty_payload
+
+    if "comment_author_contributor_key" not in issue_comments_df.columns:
+        return empty_payload
+
+    df = issue_comments_df.copy()
+    df["comment_author_contributor_key"] = df["comment_author_contributor_key"].apply(clean_text)
+    df = df[df["comment_author_contributor_key"].notna()].copy()
+
+    if df.empty:
+        return empty_payload
+
+    if "created_at" in df.columns:
+        df["created_at"] = safe_to_datetime(df["created_at"])
+    else:
+        df["created_at"] = pd.NaT
+
+    grouped = (
+        df.groupby("comment_author_contributor_key", dropna=False)
+        .agg(
+            top_commenter_comment_count=("comment_author_contributor_key", "size"),
+            top_commenter_first_comment_at=("created_at", "min"),
+        )
+        .reset_index()
+    )
+
+    grouped = grouped.sort_values(
+        ["top_commenter_comment_count", "top_commenter_first_comment_at", "comment_author_contributor_key"],
+        ascending=[False, True, True],
+        kind="stable",
+        na_position="last",
+    ).reset_index(drop=True)
+
+    top_row = grouped.iloc[0].to_dict()
+    return {
+        "top_commenter_contributor_key": clean_text(top_row.get("comment_author_contributor_key")),
+        "top_commenter_comment_count": int(top_row.get("top_commenter_comment_count") or 0),
+    }
+
+def summarize_repo_level_participant_role_features(issue_row, issue_comments_df, repo_history_df, config):
+    stats_by_key, timestamp_missing_flag, leakage_rows = build_pre_issue_repo_contributor_stats_for_issue(
+        issue_row,
+        repo_history_df,
+        config,
+    )
+
+    author_key = clean_text(issue_row.get("issue_author_contributor_key"))
+    author_stats = stats_by_key.get(author_key, {}) if author_key else {}
+
+    issue_author_has_resolved_key = 1 if author_key else 0
+    issue_author_is_pre_issue_repo_contributor = int(author_stats.get("is_contributor") or 0)
+    issue_author_is_pre_issue_major_repo_contributor = int(author_stats.get("is_major") or 0)
+
+    output = {
+        "issue_author_has_resolved_key": issue_author_has_resolved_key,
+        "issue_author_is_pre_issue_repo_contributor": issue_author_is_pre_issue_repo_contributor,
+        "issue_author_pre_issue_repo_commit_count": int(author_stats.get("commit_count") or 0),
+        "issue_author_pre_issue_repo_commit_share": (
+            float(author_stats.get("commit_share")) if author_stats and author_stats.get("commit_share") is not None else 0.0
+        ),
+        "issue_author_pre_issue_repo_distinct_days": int(author_stats.get("distinct_days") or 0),
+        "issue_author_pre_issue_repo_rank": int(author_stats.get("rank") or 0) if author_stats else None,
+        "issue_author_is_pre_issue_major_repo_contributor": issue_author_is_pre_issue_major_repo_contributor,
+
+        "commenter_count_with_resolved_key": 0,
+        "commenter_count_pre_issue_repo_contributors": 0,
+        "share_commenters_pre_issue_repo_contributors": None,
+        "any_commenter_is_pre_issue_repo_contributor": 0,
+
+        "commenter_count_pre_issue_major_repo_contributors": 0,
+        "share_commenters_pre_issue_major_repo_contributors": None,
+        "any_commenter_is_pre_issue_major_repo_contributor": 0,
+
+        "top_commenter_contributor_key": None,
+        "top_commenter_comment_count": 0,
+        "top_commenter_is_pre_issue_repo_contributor": 0,
+        "top_commenter_is_pre_issue_major_repo_contributor": 0,
+
+        "participant_role_pre_issue_timestamp_missing": int(timestamp_missing_flag),
+        "participant_role_pre_issue_commit_leakage_rows": int(leakage_rows),
+    }
+
+    if issue_comments_df is not None and not issue_comments_df.empty and "comment_author_contributor_key" in issue_comments_df.columns:
+        commenter_keys = {
+            clean_text(value)
+            for value in issue_comments_df["comment_author_contributor_key"].tolist()
+            if clean_text(value)
+        }
+    else:
+        commenter_keys = set()
+
+    commenter_count = int(len(commenter_keys))
+    pre_issue_contributor_count = 0
+    pre_issue_major_count = 0
+
+    for commenter_key in commenter_keys:
+        commenter_stats = stats_by_key.get(commenter_key, {})
+        if int(commenter_stats.get("is_contributor") or 0) == 1:
+            pre_issue_contributor_count += 1
+        if int(commenter_stats.get("is_major") or 0) == 1:
+            pre_issue_major_count += 1
+
+    output["commenter_count_with_resolved_key"] = commenter_count
+    output["commenter_count_pre_issue_repo_contributors"] = pre_issue_contributor_count
+    output["any_commenter_is_pre_issue_repo_contributor"] = 1 if pre_issue_contributor_count > 0 else 0
+
+    output["commenter_count_pre_issue_major_repo_contributors"] = pre_issue_major_count
+    output["any_commenter_is_pre_issue_major_repo_contributor"] = 1 if pre_issue_major_count > 0 else 0
+
+    if commenter_count > 0:
+        output["share_commenters_pre_issue_repo_contributors"] = pre_issue_contributor_count / float(commenter_count)
+        output["share_commenters_pre_issue_major_repo_contributors"] = pre_issue_major_count / float(commenter_count)
+
+    top_payload = get_top_commenter_payload(issue_comments_df)
+    top_commenter_key = clean_text(top_payload.get("top_commenter_contributor_key"))
+    top_commenter_stats = stats_by_key.get(top_commenter_key, {}) if top_commenter_key else {}
+
+    output["top_commenter_contributor_key"] = top_commenter_key
+    output["top_commenter_comment_count"] = int(top_payload.get("top_commenter_comment_count") or 0)
+    output["top_commenter_is_pre_issue_repo_contributor"] = int(top_commenter_stats.get("is_contributor") or 0)
+    output["top_commenter_is_pre_issue_major_repo_contributor"] = int(top_commenter_stats.get("is_major") or 0)
+
+    return output
+
+def prepare_file_contribution_history_frame(commits_resolved_df, commit_files_df):
+    output_columns = [
+        "repo_full_name",
+        "commit_sha",
+        "commit_author_contributor_key",
+        "commit_timestamp",
+        "commit_day",
+        "file_path",
+    ]
+
+    if commits_resolved_df is None or commits_resolved_df.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    if commit_files_df is None or commit_files_df.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    required_commit_columns = ["repo_full_name", "commit_sha", "commit_author_contributor_key", "commit_timestamp"]
+    missing_commit_columns = [column for column in required_commit_columns if column not in commits_resolved_df.columns]
+    if missing_commit_columns:
+        return pd.DataFrame(columns=output_columns)
+
+    required_file_columns = ["repo_full_name", "commit_sha"]
+    missing_file_columns = [column for column in required_file_columns if column not in commit_files_df.columns]
+    if missing_file_columns:
+        return pd.DataFrame(columns=output_columns)
+
+    commits = commits_resolved_df[required_commit_columns].copy()
+    commits["repo_full_name"] = commits["repo_full_name"].apply(clean_text)
+    commits["commit_sha"] = commits["commit_sha"].apply(clean_text)
+    commits["commit_author_contributor_key"] = commits["commit_author_contributor_key"].apply(clean_text)
+    commits["commit_timestamp"] = safe_to_datetime(commits["commit_timestamp"])
+
+    commits = commits[
+        commits["repo_full_name"].notna()
+        & commits["commit_sha"].notna()
+        & commits["commit_author_contributor_key"].notna()
+        & commits["commit_timestamp"].notna()
+    ].copy()
+
+    if commits.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    file_rows = []
+    source_columns = []
+    if "file_path" in commit_files_df.columns:
+        source_columns.append("file_path")
+    if "old_file_path" in commit_files_df.columns:
+        source_columns.append("old_file_path")
+
+    if not source_columns:
+        return pd.DataFrame(columns=output_columns)
+
+    available_file_columns = ["repo_full_name", "commit_sha"] + source_columns
+    files = commit_files_df[available_file_columns].copy()
+    files["repo_full_name"] = files["repo_full_name"].apply(clean_text)
+    files["commit_sha"] = files["commit_sha"].apply(clean_text)
+
+    for row in files.to_dict(orient="records"):
+        repo_full_name = clean_text(row.get("repo_full_name"))
+        commit_sha = clean_text(row.get("commit_sha"))
+        if not repo_full_name or not commit_sha:
+            continue
+
+        for source_column in source_columns:
+            file_path = clean_text(row.get(source_column))
+            if not file_path:
+                continue
+
+            file_rows.append(
+                {
+                    "repo_full_name": repo_full_name,
+                    "commit_sha": commit_sha,
+                    "file_path": file_path,
+                }
+            )
+
+    if not file_rows:
+        return pd.DataFrame(columns=output_columns)
+
+    file_df = pd.DataFrame(file_rows).drop_duplicates(
+        subset=["repo_full_name", "commit_sha", "file_path"]
+    ).reset_index(drop=True)
+
+    joined = file_df.merge(
+        commits,
+        on=["repo_full_name", "commit_sha"],
+        how="inner",
+    )
+
+    if joined.empty:
+        return pd.DataFrame(columns=output_columns)
+
+    joined["file_path"] = joined["file_path"].apply(clean_text)
+    joined = joined[joined["file_path"].notna()].copy()
+    joined["commit_day"] = joined["commit_timestamp"].dt.strftime("%Y-%m-%d")
+
+    joined = joined.drop_duplicates(
+        subset=["repo_full_name", "commit_sha", "commit_author_contributor_key", "file_path"]
+    ).reset_index(drop=True)
+
+    return joined[output_columns].reset_index(drop=True)
+
+def get_participant_role_linked_files(issue_file_payload, config):
+    if issue_file_payload is None:
+        return [], [], "none"
+
+    file_rows = issue_file_payload.get("file_rows", [])
+    if not file_rows:
+        return [], [], "none"
+
+    all_files = []
+    high_conf_files = []
+
+    for row in file_rows:
+        file_path = clean_text(row.get("file_path"))
+        if not file_path:
+            continue
+
+        all_files.append(file_path)
+
+        high_conf_flag = pd.to_numeric(
+            row.get("issue_file_link_is_high_confidence"),
+            errors="coerce",
+        )
+        high_conf_flag = int(high_conf_flag) if pd.notna(high_conf_flag) else 0
+        if high_conf_flag == 1:
+            high_conf_files.append(file_path)
+
+    all_files = sorted(set(all_files))
+    high_conf_files = sorted(set(high_conf_files))
+
+    link_scope = normalize_value(get_ownership_option(config, "participant_role_file_link_scope", "all"))
+    if link_scope == "high_confidence":
+        selected_files = high_conf_files
+    else:
+        selected_files = all_files
+        link_scope = "all"
+
+    return selected_files, high_conf_files, link_scope
+
+def build_participant_role_file_coverage_flag(*, issue_created_at, linked_files, high_conf_files, link_scope, stats_by_key):
+    if pd.isna(issue_created_at):
+        return "missing_issue_timestamp"
+
+    if not linked_files:
+        if normalize_value(link_scope) == "high_confidence" and high_conf_files == []:
+            return "no_high_conf_file_links"
+        return "no_file_links"
+
+    if not stats_by_key:
+        return "no_pre_issue_file_history"
+
+    return "ok"
+
+def get_unique_resolved_commenter_keys(issue_comments_df):
+    if issue_comments_df is None or issue_comments_df.empty:
+        return set()
+
+    if "comment_author_contributor_key" not in issue_comments_df.columns:
+        return set()
+
+    return {
+        clean_text(value)
+        for value in issue_comments_df["comment_author_contributor_key"].tolist()
+        if clean_text(value)
+    }
+
+def summarize_file_coverage_by_analysis_set(df):
+    if df is None or df.empty:
+        return "{}"
+
+    required_columns = {"analysis_set", "participant_role_file_coverage_flag"}
+    if not required_columns.issubset(set(df.columns)):
+        return "{}"
+
+    temp = df.copy()
+    temp["analysis_set"] = temp["analysis_set"].apply(lambda value: clean_text(value) or "missing")
+    temp["participant_role_file_coverage_flag"] = temp["participant_role_file_coverage_flag"].apply(
+        lambda value: clean_text(value) or "unknown"
+    )
+
+    grouped = (
+        temp.groupby(["analysis_set", "participant_role_file_coverage_flag"], dropna=False)
+        .size()
+        .reset_index(name="issue_count")
+    )
+
+    payload = {}
+    for row in grouped.to_dict(orient="records"):
+        analysis_set = row.get("analysis_set") or "missing"
+        coverage_flag = row.get("participant_role_file_coverage_flag") or "unknown"
+        payload.setdefault(analysis_set, {})[coverage_flag] = int(row.get("issue_count") or 0)
+
+    return json.dumps(payload, sort_keys=True)
+
+def classify_pre_issue_major_file_contributor(stats, config):
+    if not stats:
+        return 0
+
+    commit_count_value = pd.to_numeric(stats.get("commit_count"), errors="coerce")
+    distinct_days_value = pd.to_numeric(stats.get("distinct_days"), errors="coerce")
+    commit_share_value = pd.to_numeric(stats.get("commit_share"), errors="coerce")
+    best_rank_value = pd.to_numeric(stats.get("best_file_rank"), errors="coerce")
+
+    commit_count = int(commit_count_value) if pd.notna(commit_count_value) else 0
+    distinct_days = int(distinct_days_value) if pd.notna(distinct_days_value) else 0
+
+    min_commits = int(get_ownership_option(config, "pre_issue_min_commits_for_major_file_contributor", 2))
+    min_distinct_days = int(get_ownership_option(config, "pre_issue_min_distinct_days_for_major_file_contributor", 1))
+    rank_threshold = int(get_ownership_option(config, "pre_issue_file_major_contributor_rank_threshold", 3))
+    share_threshold = float(get_ownership_option(config, "pre_issue_file_major_contributor_share_threshold", 0.20))
+
+    if commit_count < min_commits:
+        return 0
+    if distinct_days < min_distinct_days:
+        return 0
+
+    rank_ok = pd.notna(best_rank_value) and int(best_rank_value) <= rank_threshold
+    share_ok = pd.notna(commit_share_value) and float(commit_share_value) >= share_threshold
+
+    return 1 if rank_ok or share_ok else 0
+
+def build_pre_issue_file_contributor_stats_for_issue(issue_row, issue_file_payload, file_history_df, config):
+    issue_created_at = safe_to_datetime(issue_row.get("created_at"))
+    if pd.isna(issue_created_at):
+        return {}, [], [], "none", 1, 0
+
+    linked_files, high_conf_files, link_scope = get_participant_role_linked_files(issue_file_payload, config)
+
+    if not linked_files:
+        return {}, linked_files, high_conf_files, link_scope, 0, 0
+
+    if file_history_df is None or file_history_df.empty:
+        return {}, linked_files, high_conf_files, link_scope, 0, 0
+
+    pre_df = file_history_df[
+        (file_history_df["file_path"].isin(linked_files))
+        & (file_history_df["commit_timestamp"] < issue_created_at)
+    ].copy()
+
+    if pre_df.empty:
+        return {}, linked_files, high_conf_files, link_scope, 0, 0
+
+    leakage_rows = int((pre_df["commit_timestamp"] >= issue_created_at).sum())
+
+    file_totals = (
+        pre_df.groupby("file_path", dropna=False)["commit_sha"]
+        .nunique()
+        .reset_index(name="file_pre_issue_commit_count")
+    )
+
+    contributor_file = (
+        pre_df.groupby(["commit_author_contributor_key", "file_path"], dropna=False)
+        .agg(
+            commit_count_on_file=("commit_sha", lambda series: int(pd.Series(series).dropna().nunique())),
+            distinct_days_on_file=("commit_day", lambda series: int(pd.Series(series).dropna().nunique())),
+        )
+        .reset_index()
+    )
+
+    contributor_file["commit_author_contributor_key"] = contributor_file["commit_author_contributor_key"].apply(clean_text)
+    contributor_file["file_path"] = contributor_file["file_path"].apply(clean_text)
+    contributor_file = contributor_file[
+        contributor_file["commit_author_contributor_key"].notna()
+        & contributor_file["file_path"].notna()
+    ].copy()
+
+    if contributor_file.empty:
+        return {}, linked_files, high_conf_files, link_scope, 0, leakage_rows
+
+    contributor_file = contributor_file.merge(file_totals, on="file_path", how="left")
+    contributor_file["file_pre_issue_commit_count"] = pd.to_numeric(
+        contributor_file["file_pre_issue_commit_count"],
+        errors="coerce",
+    ).fillna(0)
+
+    contributor_file["share_of_file_commits"] = contributor_file.apply(
+        lambda row: safe_divide(
+            row.get("commit_count_on_file"),
+            row.get("file_pre_issue_commit_count"),
+            default_value=0.0,
+        ),
+        axis=1,
+    )
+
+    contributor_file = contributor_file.sort_values(
+        ["file_path", "commit_count_on_file", "commit_author_contributor_key"],
+        ascending=[True, False, True],
+        kind="stable",
+    ).reset_index(drop=True)
+
+    contributor_file["file_rank"] = (
+        contributor_file.groupby("file_path", dropna=False).cumcount() + 1
+    )
+
+    min_commits_for_file_contributor = int(
+        get_ownership_option(config, "pre_issue_min_commits_for_file_contributor", 1)
+    )
+
+    stats_by_key = {}
+    for contributor_key, part in contributor_file.groupby("commit_author_contributor_key", dropna=False):
+        contributor_key = clean_text(contributor_key)
+        if not contributor_key:
+            continue
+
+        touched_files = sorted(
+            {
+                clean_text(value)
+                for value in part["file_path"].tolist()
+                if clean_text(value)
+            }
+        )
+
+        commit_count = int(pd.to_numeric(part["commit_count_on_file"], errors="coerce").fillna(0).sum())
+        distinct_days = int(pd.to_numeric(part["distinct_days_on_file"], errors="coerce").fillna(0).sum())
+        linked_file_count = int(len(touched_files))
+
+        best_file_rank_series = pd.to_numeric(part["file_rank"], errors="coerce").dropna()
+        best_file_rank = int(best_file_rank_series.min()) if not best_file_rank_series.empty else None
+
+        max_share_series = pd.to_numeric(part["share_of_file_commits"], errors="coerce").dropna()
+        max_file_share = float(max_share_series.max()) if not max_share_series.empty else 0.0
+
+        linked_file_share = safe_divide(linked_file_count, len(linked_files), default_value=0.0)
+
+        stats = {
+            "commit_count": commit_count,
+            "distinct_days": distinct_days,
+            "linked_file_count": linked_file_count,
+            "linked_file_share": linked_file_share,
+            "touched_linked_files": touched_files,
+            "best_file_rank": best_file_rank,
+            "commit_share": max_file_share,
+            "is_contributor": 1 if commit_count >= min_commits_for_file_contributor else 0,
+        }
+        stats["is_major"] = classify_pre_issue_major_file_contributor(stats, config)
+        stats_by_key[contributor_key] = stats
+
+    return stats_by_key, linked_files, high_conf_files, link_scope, 0, leakage_rows
+
+def summarize_file_level_participant_role_features(issue_row, issue_comments_df, issue_file_payload, file_history_df, config):
+    (
+        stats_by_key,
+        linked_files,
+        high_conf_files,
+        link_scope,
+        timestamp_missing_flag,
+        leakage_rows,
+    ) = build_pre_issue_file_contributor_stats_for_issue(
+        issue_row,
+        issue_file_payload,
+        file_history_df,
+        config,
+    )
+
+    issue_created_at = safe_to_datetime(issue_row.get("created_at"))
+    author_key = clean_text(issue_row.get("issue_author_contributor_key"))
+    author_stats = stats_by_key.get(author_key, {}) if author_key else {}
+
+    commenter_keys = get_unique_resolved_commenter_keys(issue_comments_df)
+    commenter_count = int(len(commenter_keys))
+
+    top_payload = get_top_commenter_payload(issue_comments_df)
+    top_commenter_key = clean_text(top_payload.get("top_commenter_contributor_key"))
+    top_commenter_stats = stats_by_key.get(top_commenter_key, {}) if top_commenter_key else {}
+
+    file_coverage_flag = build_participant_role_file_coverage_flag(
+        issue_created_at=issue_created_at,
+        linked_files=linked_files,
+        high_conf_files=high_conf_files,
+        link_scope=link_scope,
+        stats_by_key=stats_by_key,
+    )
+
+    has_file_links = 1 if len(linked_files) > 0 else 0
+    has_high_conf_file_links = 1 if len(high_conf_files) > 0 else 0
+    has_pre_issue_file_history = 1 if len(stats_by_key) > 0 else 0
+    has_author_key = 1 if author_key else 0
+    has_resolved_commenters = 1 if commenter_count > 0 else 0
+    has_top_commenter_key = 1 if top_commenter_key else 0
+
+    file_features_applicable = 1 if file_coverage_flag == "ok" else 0
+    author_file_role_applicable = 1 if file_features_applicable == 1 and has_author_key == 1 else 0
+    commenter_file_role_applicable = 1 if file_features_applicable == 1 and has_resolved_commenters == 1 else 0
+    top_commenter_file_role_applicable = 1 if file_features_applicable == 1 and has_top_commenter_key == 1 else 0
+
+    output = {
+        "participant_role_file_link_scope": link_scope,
+        "participant_role_file_coverage_flag": file_coverage_flag,
+        "participant_role_file_features_applicable": file_features_applicable,
+
+        "participant_role_linked_file_count": int(len(linked_files)),
+        "participant_role_high_conf_linked_file_count": int(len(high_conf_files)),
+        "participant_role_has_file_links": has_file_links,
+        "participant_role_has_high_conf_file_links": has_high_conf_file_links,
+        "participant_role_has_pre_issue_file_history": has_pre_issue_file_history,
+        "participant_role_pre_issue_file_history_file_count": int(
+            len(
+                {
+                    clean_text(stats.get("file_path"))
+                    for stats in []
+                    if clean_text(stats.get("file_path"))
+                }
+            )
+        ),
+
+        "participant_role_file_author_has_resolved_key": has_author_key,
+        "participant_role_file_commenter_count_with_resolved_key": commenter_count,
+        "participant_role_file_has_resolved_commenters": has_resolved_commenters,
+        "participant_role_file_top_commenter_has_resolved_key": has_top_commenter_key,
+
+        "participant_role_file_author_applicable": author_file_role_applicable,
+        "participant_role_file_commenter_applicable": commenter_file_role_applicable,
+        "participant_role_file_top_commenter_applicable": top_commenter_file_role_applicable,
+
+        "issue_author_is_pre_issue_file_contributor": int(author_stats.get("is_contributor") or 0),
+        "issue_author_pre_issue_linked_file_commit_count": int(author_stats.get("commit_count") or 0),
+        "issue_author_pre_issue_linked_file_count": int(author_stats.get("linked_file_count") or 0),
+        "issue_author_pre_issue_linked_file_share": (
+            float(author_stats.get("linked_file_share"))
+            if author_stats and author_stats.get("linked_file_share") is not None
+            else 0.0
+        ),
+        "issue_author_pre_issue_best_file_rank": (
+            int(author_stats.get("best_file_rank"))
+            if author_stats and author_stats.get("best_file_rank") is not None
+            else None
+        ),
+        "issue_author_pre_issue_max_file_commit_share": (
+            float(author_stats.get("commit_share"))
+            if author_stats and author_stats.get("commit_share") is not None
+            else 0.0
+        ),
+        "issue_author_is_pre_issue_major_file_contributor": int(author_stats.get("is_major") or 0),
+
+        "commenter_count_pre_issue_file_contributors": 0,
+        "share_commenters_pre_issue_file_contributors": None,
+        "any_commenter_is_pre_issue_file_contributor": 0,
+
+        "commenter_count_pre_issue_major_file_contributors": 0,
+        "share_commenters_pre_issue_major_file_contributors": None,
+        "any_commenter_is_pre_issue_major_file_contributor": 0,
+
+        "top_commenter_is_pre_issue_file_contributor": int(top_commenter_stats.get("is_contributor") or 0),
+        "top_commenter_is_pre_issue_major_file_contributor": int(top_commenter_stats.get("is_major") or 0),
+
+        "participant_role_file_pre_issue_timestamp_missing": int(timestamp_missing_flag),
+        "participant_role_file_pre_issue_commit_leakage_rows": int(leakage_rows),
+    }
+
+    touched_file_union = set()
+    for stats in (stats_by_key or {}).values():
+        for file_path in stats.get("touched_linked_files", []) or []:
+            file_path = clean_text(file_path)
+            if file_path:
+                touched_file_union.add(file_path)
+
+    output["participant_role_pre_issue_file_history_file_count"] = int(len(touched_file_union))
+
+    file_contributor_count = 0
+    major_file_contributor_count = 0
+
+    for commenter_key in commenter_keys:
+        commenter_stats = stats_by_key.get(commenter_key, {})
+        if int(commenter_stats.get("is_contributor") or 0) == 1:
+            file_contributor_count += 1
+        if int(commenter_stats.get("is_major") or 0) == 1:
+            major_file_contributor_count += 1
+
+    output["commenter_count_pre_issue_file_contributors"] = file_contributor_count
+    output["any_commenter_is_pre_issue_file_contributor"] = 1 if file_contributor_count > 0 else 0
+    output["commenter_count_pre_issue_major_file_contributors"] = major_file_contributor_count
+    output["any_commenter_is_pre_issue_major_file_contributor"] = 1 if major_file_contributor_count > 0 else 0
+
+    if commenter_count > 0:
+        output["share_commenters_pre_issue_file_contributors"] = file_contributor_count / float(commenter_count)
+        output["share_commenters_pre_issue_major_file_contributors"] = major_file_contributor_count / float(commenter_count)
+
+    if file_features_applicable == 0:
+        output["issue_author_is_pre_issue_file_contributor"] = 0
+        output["issue_author_is_pre_issue_major_file_contributor"] = 0
+        output["commenter_count_pre_issue_file_contributors"] = 0
+        output["commenter_count_pre_issue_major_file_contributors"] = 0
+        output["any_commenter_is_pre_issue_file_contributor"] = 0
+        output["any_commenter_is_pre_issue_major_file_contributor"] = 0
+        output["top_commenter_is_pre_issue_file_contributor"] = 0
+        output["top_commenter_is_pre_issue_major_file_contributor"] = 0
+
+    return output
+
+def evidence_contributor_key_set(evidence_rows):
+    keys = set()
+    for row in evidence_rows or []:
+        contributor_key = clean_text(row.get("commit_author_contributor_key"))
+        if contributor_key:
+            keys.add(contributor_key)
+    return keys
+
+def top_evidence_contributor_key(evidence_rows):
+    rows = []
+    for row in evidence_rows or []:
+        contributor_key = clean_text(row.get("commit_author_contributor_key"))
+        if not contributor_key:
+            continue
+        rows.append(
+            {
+                "contributor_key": contributor_key,
+                "commit_sha": clean_text(row.get("commit_sha")),
+                "file_path": clean_text(row.get("file_path")),
+            }
+        )
+
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows)
+    grouped = (
+        df.groupby("contributor_key", dropna=False)
+        .agg(
+            evidence_row_count=("contributor_key", "size"),
+            commit_count=("commit_sha", lambda series: int(pd.Series(series).dropna().nunique())),
+            file_count=("file_path", lambda series: int(pd.Series(series).dropna().nunique())),
+        )
+        .reset_index()
+    )
+
+    grouped = grouped.sort_values(
+        ["commit_count", "evidence_row_count", "file_count", "contributor_key"],
+        ascending=[False, False, False, True],
+        kind="stable",
+    ).reset_index(drop=True)
+
+    if grouped.empty:
+        return None
+
+    return clean_text(grouped.iloc[0].get("contributor_key"))
+
+def contributor_keys_from_stats(stats_by_key, require_major=False):
+    keys = set()
+    for contributor_key, stats in (stats_by_key or {}).items():
+        contributor_key = clean_text(contributor_key)
+        if not contributor_key:
+            continue
+
+        if require_major:
+            if int(stats.get("is_major") or 0) == 1:
+                keys.add(contributor_key)
+        else:
+            if int(stats.get("is_contributor") or 0) == 1:
+                keys.add(contributor_key)
+
+    return keys
+
+def issue_commenter_key_set(issue_comments_df):
+    if issue_comments_df is None or issue_comments_df.empty:
+        return set()
+
+    if "comment_author_contributor_key" not in issue_comments_df.columns:
+        return set()
+
+    return {
+        clean_text(value)
+        for value in issue_comments_df["comment_author_contributor_key"].tolist()
+        if clean_text(value)
+    }
+
+def summarize_pre_post_continuity_features(issue_row, issue_comments_df, issue_file_payload,repo_history_df, file_history_df, selected_any_pre_issue_rows, selected_any_post_issue_rows, config):
+    repo_stats_by_key, repo_timestamp_missing_flag, repo_leakage_rows = build_pre_issue_repo_contributor_stats_for_issue(
+        issue_row,
+        repo_history_df,
+        config,
+    )
+
+    (
+        file_stats_by_key,
+        linked_files,
+        high_conf_files,
+        link_scope,
+        file_timestamp_missing_flag,
+        file_leakage_rows,
+    ) = build_pre_issue_file_contributor_stats_for_issue(
+        issue_row,
+        issue_file_payload,
+        file_history_df,
+        config,
+    )
+
+    pre_issue_owner_set = evidence_contributor_key_set(selected_any_pre_issue_rows)
+    post_issue_owner_set = evidence_contributor_key_set(selected_any_post_issue_rows)
+
+    pre_issue_repo_contributor_set = contributor_keys_from_stats(repo_stats_by_key, require_major=False)
+    pre_issue_major_repo_contributor_set = contributor_keys_from_stats(repo_stats_by_key, require_major=True)
+
+    pre_issue_file_contributor_set = contributor_keys_from_stats(file_stats_by_key, require_major=False)
+    pre_issue_major_file_contributor_set = contributor_keys_from_stats(file_stats_by_key, require_major=True)
+
+    overlap_set = pre_issue_owner_set.intersection(post_issue_owner_set)
+    union_set = pre_issue_owner_set.union(post_issue_owner_set)
+
+    post_with_pre_repo_history = post_issue_owner_set.intersection(pre_issue_repo_contributor_set)
+    post_with_pre_major_repo_history = post_issue_owner_set.intersection(pre_issue_major_repo_contributor_set)
+    post_with_pre_file_history = post_issue_owner_set.intersection(pre_issue_file_contributor_set)
+    post_with_pre_major_file_history = post_issue_owner_set.intersection(pre_issue_major_file_contributor_set)
+
+    top_pre_issue_owner_key = top_evidence_contributor_key(selected_any_pre_issue_rows)
+
+    author_key = clean_text(issue_row.get("issue_author_contributor_key"))
+    commenter_keys = issue_commenter_key_set(issue_comments_df)
+
+    top_commenter_payload = get_top_commenter_payload(issue_comments_df)
+    top_commenter_key = clean_text(top_commenter_payload.get("top_commenter_contributor_key"))
+
+    commenters_as_post_owners = commenter_keys.intersection(post_issue_owner_set)
+    pre_issue_repo_commenters_as_post_owners = commenter_keys.intersection(pre_issue_repo_contributor_set).intersection(
+        post_issue_owner_set
+    )
+    pre_issue_file_commenters_as_post_owners = commenter_keys.intersection(pre_issue_file_contributor_set).intersection(
+        post_issue_owner_set
+    )
+
+    post_issue_owner_count = int(len(post_issue_owner_set))
+    pre_issue_owner_count = int(len(pre_issue_owner_set))
+    commenter_count = int(len(commenter_keys))
+
+    return {
+        "pre_issue_owner_count_for_continuity": pre_issue_owner_count,
+        "post_issue_owner_count_for_continuity": post_issue_owner_count,
+
+        "pre_post_owner_overlap_count": int(len(overlap_set)),
+        "pre_post_owner_jaccard": safe_divide(len(overlap_set), len(union_set), default_value=None),
+        "any_pre_issue_owner_became_post_issue_owner": 1 if len(overlap_set) > 0 else 0,
+        "top_pre_issue_owner_contributor_key": top_pre_issue_owner_key,
+        "top_pre_issue_owner_became_post_issue_owner": (
+            1 if top_pre_issue_owner_key and top_pre_issue_owner_key in post_issue_owner_set else 0
+        ),
+
+        "post_issue_owners_with_pre_issue_repo_history_count": int(len(post_with_pre_repo_history)),
+        "post_issue_owners_with_pre_issue_major_repo_history_count": int(len(post_with_pre_major_repo_history)),
+        "share_post_issue_owners_with_pre_issue_repo_history": safe_divide(
+            len(post_with_pre_repo_history),
+            post_issue_owner_count,
+            default_value=None,
+        ),
+        "share_post_issue_owners_with_pre_issue_major_repo_history": safe_divide(
+            len(post_with_pre_major_repo_history),
+            post_issue_owner_count,
+            default_value=None,
+        ),
+        "any_post_issue_owner_with_pre_issue_repo_history": 1 if len(post_with_pre_repo_history) > 0 else 0,
+        "any_post_issue_owner_with_pre_issue_major_repo_history": (
+            1 if len(post_with_pre_major_repo_history) > 0 else 0
+        ),
+
+        "post_issue_owners_with_pre_issue_file_history_count": int(len(post_with_pre_file_history)),
+        "post_issue_owners_with_pre_issue_major_file_history_count": int(len(post_with_pre_major_file_history)),
+        "share_post_issue_owners_with_pre_issue_file_history": safe_divide(
+            len(post_with_pre_file_history),
+            post_issue_owner_count,
+            default_value=None,
+        ),
+        "share_post_issue_owners_with_pre_issue_major_file_history": safe_divide(
+            len(post_with_pre_major_file_history),
+            post_issue_owner_count,
+            default_value=None,
+        ),
+        "any_post_issue_owner_with_pre_issue_file_history": 1 if len(post_with_pre_file_history) > 0 else 0,
+        "any_post_issue_owner_with_pre_issue_major_file_history": (
+            1 if len(post_with_pre_major_file_history) > 0 else 0
+        ),
+
+        "issue_author_is_post_issue_owner": 1 if author_key and author_key in post_issue_owner_set else 0,
+        "issue_author_pre_issue_repo_contributor_became_post_issue_owner": (
+            1
+            if author_key
+            and author_key in pre_issue_repo_contributor_set
+            and author_key in post_issue_owner_set
+            else 0
+        ),
+        "issue_author_pre_issue_file_contributor_became_post_issue_owner": (
+            1
+            if author_key
+            and author_key in pre_issue_file_contributor_set
+            and author_key in post_issue_owner_set
+            else 0
+        ),
+
+        "commenter_count_eventual_post_issue_owners": int(len(commenters_as_post_owners)),
+        "share_commenters_eventual_post_issue_owners": safe_divide(
+            len(commenters_as_post_owners),
+            commenter_count,
+            default_value=None,
+        ),
+        "any_commenter_is_eventual_post_issue_owner": 1 if len(commenters_as_post_owners) > 0 else 0,
+
+        "top_commenter_is_eventual_post_issue_owner": (
+            1 if top_commenter_key and top_commenter_key in post_issue_owner_set else 0
+        ),
+
+        "commenter_count_pre_issue_repo_contributors_eventual_post_issue_owners": int(
+            len(pre_issue_repo_commenters_as_post_owners)
+        ),
+        "any_pre_issue_repo_contributor_commenter_is_eventual_post_issue_owner": (
+            1 if len(pre_issue_repo_commenters_as_post_owners) > 0 else 0
+        ),
+
+        "commenter_count_pre_issue_file_contributors_eventual_post_issue_owners": int(
+            len(pre_issue_file_commenters_as_post_owners)
+        ),
+        "any_pre_issue_file_contributor_commenter_is_eventual_post_issue_owner": (
+            1 if len(pre_issue_file_commenters_as_post_owners) > 0 else 0
+        ),
+
+        "continuity_pre_issue_repo_timestamp_missing": int(repo_timestamp_missing_flag),
+        "continuity_pre_issue_repo_commit_leakage_rows": int(repo_leakage_rows),
+        "continuity_pre_issue_file_timestamp_missing": int(file_timestamp_missing_flag),
+        "continuity_pre_issue_file_commit_leakage_rows": int(file_leakage_rows),
+    }
+
 def confidence_rank(value):
     clean = normalize_value(value)
     return CONFIDENCE_RANK.get(clean, 0)
@@ -552,7 +1629,9 @@ def annotate_conservative_pre_issue_selection(evidence_rows, config):
     if evidence_rows is None:
         return []
 
-    if isinstance(evidence_rows, pd.DataFrame):
+    input_was_dataframe = isinstance(evidence_rows, pd.DataFrame)
+
+    if input_was_dataframe:
         input_df = evidence_rows.copy()
     else:
         input_rows = list(evidence_rows)
@@ -561,7 +1640,7 @@ def annotate_conservative_pre_issue_selection(evidence_rows, config):
         input_df = pd.DataFrame(input_rows)
 
     if input_df.empty:
-        if isinstance(evidence_rows, pd.DataFrame):
+        if input_was_dataframe:
             out_df = input_df.copy()
             if "selected_for_conservative_pre_issue_fallback" not in out_df.columns:
                 out_df["selected_for_conservative_pre_issue_fallback"] = pd.Series(dtype="int64")
@@ -573,20 +1652,20 @@ def annotate_conservative_pre_issue_selection(evidence_rows, config):
 
     enabled = bool(get_conservative_pre_issue_option(config, "enable_conservative_pre_issue_fallback", False))
     if not enabled:
-        return out.to_dict(orient="records") if not isinstance(evidence_rows, pd.DataFrame) else out
+        return out if input_was_dataframe else out.to_dict(orient="records")
 
     required_columns = ["repo_full_name", "issue_id", "issue_number", "commit_author_contributor_key"]
     for column_name in required_columns:
         if column_name not in out.columns:
-            return out.to_dict(orient="records") if not isinstance(evidence_rows, pd.DataFrame) else out
+            return out if input_was_dataframe else out.to_dict(orient="records")
 
     support_df = build_conservative_pre_issue_support_frame(out, config)
     if support_df.empty:
-        return out.to_dict(orient="records") if not isinstance(evidence_rows, pd.DataFrame) else out
+        return out if input_was_dataframe else out.to_dict(orient="records")
 
     support_ok_df = support_df[support_df["conservative_pre_issue_support_ok"] == 1].copy()
     if support_ok_df.empty:
-        return out.to_dict(orient="records") if not isinstance(evidence_rows, pd.DataFrame) else out
+        return out if input_was_dataframe else out.to_dict(orient="records")
 
     support_key_columns = ["repo_full_name", "issue_id", "issue_number", "commit_author_contributor_key"]
     support_ok_df = support_ok_df[support_key_columns].drop_duplicates().copy()
@@ -603,6 +1682,14 @@ def annotate_conservative_pre_issue_selection(evidence_rows, config):
         .fillna(0)
         .astype(int)
     )
+
+    if "ownership_time_bucket" in out.columns:
+        out["__ownership_time_bucket_normalized"] = out["ownership_time_bucket"].apply(normalize_value)
+        pre_issue_row_mask = out["__ownership_time_bucket_normalized"] == "pre_issue"
+        out.loc[~pre_issue_row_mask, "selected_for_conservative_pre_issue_fallback"] = 0
+        out = out.drop(columns=["__ownership_time_bucket_normalized"], errors="ignore")
+    else:
+        out["selected_for_conservative_pre_issue_fallback"] = 0
 
     out = out.drop(columns=["__conservative_pre_issue_selected"], errors="ignore")
 
@@ -641,9 +1728,7 @@ def annotate_conservative_pre_issue_selection(evidence_rows, config):
             out.loc[drop_mask, "selected_for_conservative_pre_issue_fallback"] = 0
             out = out.drop(columns=["__drop_conservative_pre_issue"], errors="ignore")
 
-    if isinstance(evidence_rows, pd.DataFrame):
-        return out
-    return out.to_dict(orient="records")
+    return out if input_was_dataframe else out.to_dict(orient="records")
 
 def prepare_issue_pr_links_frame(issue_pr_links_df, target_issue_ids, target_issue_numbers):
     if issue_pr_links_df.empty:
@@ -1350,6 +2435,17 @@ def combine_issue_ownership_evidence(config, repo_policy, pr_merge_rows, pr_exac
     conservative_selected_rows = []
     conservative_keys = set()
     for row in all_rows:
+        row_bucket = normalize_value(row.get("ownership_time_bucket"))
+        selected_value = pd.to_numeric(
+            row.get("selected_for_conservative_pre_issue_fallback"),
+            errors="coerce",
+        )
+        selected_flag = int(selected_value) if pd.notna(selected_value) else 0
+
+        if selected_flag != 1 or row_bucket != "pre_issue":
+            row["selected_for_conservative_pre_issue_fallback"] = 0
+            continue
+
         row_key = (
             row.get("repo_full_name"),
             clean_text(row.get("issue_id")),
@@ -1359,9 +2455,8 @@ def combine_issue_ownership_evidence(config, repo_policy, pr_merge_rows, pr_exac
             row.get("pr_id"),
             row.get("pr_number"),
         )
-        if int(pd.to_numeric(row.get("selected_for_conservative_pre_issue_fallback"), errors="coerce") or 0) == 1:
-            conservative_selected_rows.append(row)
-            conservative_keys.add(row_key)
+        conservative_selected_rows.append(row)
+        conservative_keys.add(row_key)
 
     counts_toward_usable_any = bool(
         get_conservative_pre_issue_option(
@@ -1386,37 +2481,42 @@ def combine_issue_ownership_evidence(config, repo_policy, pr_merge_rows, pr_exac
             row.get("pr_id"),
             row.get("pr_number"),
         )
+        row_bucket = normalize_value(row.get("ownership_time_bucket"))
+
         row["selected_for_high_confidence_features"] = 1 if row_key in high_conf_keys else 0
+
         conservative_value = pd.to_numeric(
             row.get("selected_for_conservative_pre_issue_fallback"),
             errors="coerce",
         )
+        conservative_flag = int(conservative_value) if pd.notna(conservative_value) else 0
         row["selected_for_conservative_pre_issue_fallback"] = (
-            int(conservative_value) if pd.notna(conservative_value) else 0
+            1 if conservative_flag == 1 and row_bucket == "pre_issue" else 0
         )
+
         row["selected_for_any_features"] = 1 if row_key in any_selected_keys else 0
         row["evidence_selected_for_features"] = row["selected_for_any_features"]
 
     selected_high_conf_pre_issue_rows = [
         row
         for row in all_rows
-        if row["selected_for_high_confidence_features"] == 1 and clean_text(row.get("ownership_time_bucket")) == "pre_issue"
+        if row["selected_for_high_confidence_features"] == 1 and normalize_value(row.get("ownership_time_bucket")) == "pre_issue"
     ]
     selected_high_conf_post_issue_rows = [
         row
         for row in all_rows
-        if row["selected_for_high_confidence_features"] == 1 and clean_text(row.get("ownership_time_bucket")) == "post_issue"
+        if row["selected_for_high_confidence_features"] == 1 and normalize_value(row.get("ownership_time_bucket")) == "post_issue"
     ]
     selected_any_rows = [row for row in all_rows if row["selected_for_any_features"] == 1]
     selected_any_pre_issue_rows = [
         row
         for row in all_rows
-        if row["selected_for_any_features"] == 1 and clean_text(row.get("ownership_time_bucket")) == "pre_issue"
+        if row["selected_for_any_features"] == 1 and normalize_value(row.get("ownership_time_bucket")) == "pre_issue"
     ]
     selected_any_post_issue_rows = [
         row
         for row in all_rows
-        if row["selected_for_any_features"] == 1 and clean_text(row.get("ownership_time_bucket")) == "post_issue"
+        if row["selected_for_any_features"] == 1 and normalize_value(row.get("ownership_time_bucket")) == "post_issue"
     ]
 
     return {
@@ -1839,11 +2939,15 @@ def summarize_repo_metrics(result, issue_feature_rows):
         result["issues_with_only_pre_issue_ownership"] = 0
         result["issues_with_only_post_issue_ownership"] = 0
 
-    if {"ownership_has_selected_conservative_pre_issue_fallback", "ownership_pre_issue_high_confidence_contributor_count"}.issubset(df.columns):
-        conservative_any = pd.to_numeric(df["ownership_has_selected_conservative_pre_issue_fallback"], errors="coerce").fillna(0) > 0
-        pre_high = pd.to_numeric(df["ownership_pre_issue_high_confidence_contributor_count"], errors="coerce").fillna(0) > 0
+    if {"ownership_has_selected_conservative_pre_issue_fallback",
+        "ownership_pre_issue_high_confidence_contributor_count"}.issubset(df.columns):
+        conservative_any = pd.to_numeric(df["ownership_has_selected_conservative_pre_issue_fallback"],
+                                         errors="coerce").fillna(0) > 0
+        pre_high = pd.to_numeric(df["ownership_pre_issue_high_confidence_contributor_count"], errors="coerce").fillna(
+            0) > 0
+        pre_any = pd.to_numeric(df["ownership_pre_issue_contributor_count"], errors="coerce").fillna(0) > 0
         result["issues_with_pre_issue_conservative_fallback_only"] = int((conservative_any & (~pre_high)).sum())
-        result["issues_with_pre_issue_any_but_not_high_confidence"] = int((pd.to_numeric(df["ownership_pre_issue_contributor_count"], errors="coerce").fillna(0) > 0 & (~pre_high)).sum())
+        result["issues_with_pre_issue_any_but_not_high_confidence"] = int((pre_any & (~pre_high)).sum())
     else:
         result["issues_with_pre_issue_conservative_fallback_only"] = 0
         result["issues_with_pre_issue_any_but_not_high_confidence"] = 0
@@ -1870,6 +2974,301 @@ def summarize_repo_metrics(result, issue_feature_rows):
     result["mean_pre_issue_high_confidence_contributor_count"] = mean_numeric("ownership_pre_issue_high_confidence_contributor_count")
     result["mean_pre_issue_any_contributor_count"] = mean_numeric("ownership_pre_issue_contributor_count")
     result["mean_pre_issue_conservative_fallback_contributor_count"] = mean_numeric("ownership_pre_issue_conservative_fallback_contributor_count")
+
+    result["issues_with_issue_author_resolved_key"] = positive_count("issue_author_has_resolved_key")
+    result["issues_with_issue_author_pre_issue_repo_contributor"] = positive_count(
+        "issue_author_is_pre_issue_repo_contributor"
+    )
+    result["issues_with_issue_author_pre_issue_major_repo_contributor"] = positive_count(
+        "issue_author_is_pre_issue_major_repo_contributor"
+    )
+
+    if "commenter_count_with_resolved_key" in df.columns:
+        result["issues_with_resolved_commenters"] = int(
+            (pd.to_numeric(df["commenter_count_with_resolved_key"], errors="coerce").fillna(0) > 0).sum()
+        )
+    else:
+        result["issues_with_resolved_commenters"] = 0
+
+    result["issues_with_any_commenter_pre_issue_repo_contributor"] = positive_count(
+        "any_commenter_is_pre_issue_repo_contributor"
+    )
+    result["issues_with_any_commenter_pre_issue_major_repo_contributor"] = positive_count(
+        "any_commenter_is_pre_issue_major_repo_contributor"
+    )
+
+    if "top_commenter_contributor_key" in df.columns:
+        result["issues_with_top_commenter_resolved_key"] = int(
+            df["top_commenter_contributor_key"].apply(clean_text).notna().sum()
+        )
+    else:
+        result["issues_with_top_commenter_resolved_key"] = 0
+
+    result["issues_with_top_commenter_pre_issue_repo_contributor"] = positive_count(
+        "top_commenter_is_pre_issue_repo_contributor"
+    )
+    result["issues_with_top_commenter_pre_issue_major_repo_contributor"] = positive_count(
+        "top_commenter_is_pre_issue_major_repo_contributor"
+    )
+
+    result["participant_role_pre_issue_timestamp_missing_issues"] = positive_count(
+        "participant_role_pre_issue_timestamp_missing"
+    )
+
+    if "participant_role_pre_issue_commit_leakage_rows" in df.columns:
+        result["participant_role_pre_issue_commit_leakage_rows"] = int(
+            pd.to_numeric(df["participant_role_pre_issue_commit_leakage_rows"], errors="coerce").fillna(0).sum()
+        )
+    else:
+        result["participant_role_pre_issue_commit_leakage_rows"] = 0
+
+    result["mean_share_commenters_pre_issue_repo_contributors"] = mean_numeric(
+        "share_commenters_pre_issue_repo_contributors"
+    )
+    result["mean_share_commenters_pre_issue_major_repo_contributors"] = mean_numeric(
+        "share_commenters_pre_issue_major_repo_contributors"
+    )
+    result["median_issue_author_pre_issue_repo_commit_count"] = median_numeric(
+        "issue_author_pre_issue_repo_commit_count",
+        default_value=0.0,
+    )
+    result["median_commenter_count_with_resolved_key"] = median_numeric(
+        "commenter_count_with_resolved_key",
+        default_value=0.0,
+    )
+    result["median_commenter_count_pre_issue_repo_contributors"] = median_numeric(
+        "commenter_count_pre_issue_repo_contributors",
+        default_value=0.0,
+    )
+    result["issues_with_participant_role_file_links"] = positive_count(
+        "participant_role_has_file_links"
+    )
+    result["issues_with_participant_role_file_coverage_ok"] = 0
+    result["issues_with_participant_role_file_coverage_no_file_links"] = 0
+    result["issues_with_participant_role_file_coverage_no_high_conf_file_links"] = 0
+    result["issues_with_participant_role_file_coverage_no_pre_issue_file_history"] = 0
+    result["issues_with_participant_role_file_coverage_missing_issue_timestamp"] = 0
+    result["issues_with_participant_role_file_coverage_unknown"] = 0
+
+    if "participant_role_file_coverage_flag" in df.columns:
+        coverage_counts = df["participant_role_file_coverage_flag"].apply(
+            lambda value: clean_text(value) or "unknown"
+        ).value_counts(dropna=False).to_dict()
+
+        result["issues_with_participant_role_file_coverage_ok"] = int(coverage_counts.get("ok", 0))
+        result["issues_with_participant_role_file_coverage_no_file_links"] = int(
+            coverage_counts.get("no_file_links", 0)
+        )
+        result["issues_with_participant_role_file_coverage_no_high_conf_file_links"] = int(
+            coverage_counts.get("no_high_conf_file_links", 0)
+        )
+        result["issues_with_participant_role_file_coverage_no_pre_issue_file_history"] = int(
+            coverage_counts.get("no_pre_issue_file_history", 0)
+        )
+        result["issues_with_participant_role_file_coverage_missing_issue_timestamp"] = int(
+            coverage_counts.get("missing_issue_timestamp", 0)
+        )
+
+        known_file_flags = {
+            "ok",
+            "no_file_links",
+            "no_high_conf_file_links",
+            "no_pre_issue_file_history",
+            "missing_issue_timestamp",
+        }
+        result["issues_with_participant_role_file_coverage_unknown"] = int(
+            sum(count for flag, count in coverage_counts.items() if flag not in known_file_flags)
+        )
+
+        result["participant_role_file_coverage_by_analysis_set"] = summarize_file_coverage_by_analysis_set(df)
+    else:
+        result["issues_with_participant_role_file_coverage_unknown"] = int(len(df))
+        result["participant_role_file_coverage_by_analysis_set"] = "{}"
+
+    result["issues_with_participant_role_file_author_applicable"] = positive_count(
+        "participant_role_file_author_applicable"
+    )
+    result["issues_with_participant_role_file_commenter_applicable"] = positive_count(
+        "participant_role_file_commenter_applicable"
+    )
+    result["issues_with_participant_role_file_top_commenter_applicable"] = positive_count(
+        "participant_role_file_top_commenter_applicable"
+    )
+    result["issues_with_participant_role_file_pre_issue_history"] = positive_count(
+        "participant_role_has_pre_issue_file_history"
+    )
+    result["issues_with_participant_role_file_resolved_commenters"] = positive_count(
+        "participant_role_file_has_resolved_commenters"
+    )
+
+    if "participant_role_file_features_applicable" in df.columns and "participant_role_linked_file_count" in df.columns:
+        applicable_mask = (
+            pd.to_numeric(df["participant_role_file_features_applicable"], errors="coerce")
+            .fillna(0)
+            .astype(int)
+            == 1
+        )
+        applicable_counts = pd.to_numeric(
+            df.loc[applicable_mask, "participant_role_linked_file_count"],
+            errors="coerce",
+        ).dropna()
+        result["mean_participant_role_linked_file_count_when_file_applicable"] = (
+            float(applicable_counts.mean()) if not applicable_counts.empty else None
+        )
+    else:
+        result["mean_participant_role_linked_file_count_when_file_applicable"] = None
+
+    result["mean_participant_role_pre_issue_file_history_file_count"] = mean_numeric(
+        "participant_role_pre_issue_file_history_file_count"
+    )
+    result["issues_with_high_conf_participant_role_file_links"] = positive_count(
+        "participant_role_has_high_conf_file_links"
+    )
+    if "participant_role_linked_file_count" in df.columns:
+        result["total_participant_role_linked_files"] = int(
+            pd.to_numeric(df["participant_role_linked_file_count"], errors="coerce").fillna(0).sum()
+        )
+    else:
+        result["total_participant_role_linked_files"] = 0
+
+    if "participant_role_high_conf_linked_file_count" in df.columns:
+        result["total_participant_role_high_conf_linked_files"] = int(
+            pd.to_numeric(df["participant_role_high_conf_linked_file_count"], errors="coerce").fillna(0).sum()
+        )
+    else:
+        result["total_participant_role_high_conf_linked_files"] = 0
+
+    result["issues_with_issue_author_pre_issue_file_contributor"] = positive_count(
+        "issue_author_is_pre_issue_file_contributor"
+    )
+    result["issues_with_issue_author_pre_issue_major_file_contributor"] = positive_count(
+        "issue_author_is_pre_issue_major_file_contributor"
+    )
+
+    result["issues_with_any_commenter_pre_issue_file_contributor"] = positive_count(
+        "any_commenter_is_pre_issue_file_contributor"
+    )
+    result["issues_with_any_commenter_pre_issue_major_file_contributor"] = positive_count(
+        "any_commenter_is_pre_issue_major_file_contributor"
+    )
+
+    result["issues_with_top_commenter_pre_issue_file_contributor"] = positive_count(
+        "top_commenter_is_pre_issue_file_contributor"
+    )
+    result["issues_with_top_commenter_pre_issue_major_file_contributor"] = positive_count(
+        "top_commenter_is_pre_issue_major_file_contributor"
+    )
+
+    result["participant_role_file_pre_issue_timestamp_missing_issues"] = positive_count(
+        "participant_role_file_pre_issue_timestamp_missing"
+    )
+
+    if "participant_role_file_pre_issue_commit_leakage_rows" in df.columns:
+        result["participant_role_file_pre_issue_commit_leakage_rows"] = int(
+            pd.to_numeric(
+                df["participant_role_file_pre_issue_commit_leakage_rows"],
+                errors="coerce",
+            ).fillna(0).sum()
+        )
+    else:
+        result["participant_role_file_pre_issue_commit_leakage_rows"] = 0
+
+    result["mean_share_commenters_pre_issue_file_contributors"] = mean_numeric(
+        "share_commenters_pre_issue_file_contributors"
+    )
+    result["mean_share_commenters_pre_issue_major_file_contributors"] = mean_numeric(
+        "share_commenters_pre_issue_major_file_contributors"
+    )
+    result["median_issue_author_pre_issue_linked_file_commit_count"] = median_numeric(
+        "issue_author_pre_issue_linked_file_commit_count",
+        default_value=0.0,
+    )
+    result["median_commenter_count_pre_issue_file_contributors"] = median_numeric(
+        "commenter_count_pre_issue_file_contributors",
+        default_value=0.0,
+    )
+    result["issues_with_pre_post_owner_overlap"] = positive_count(
+        "pre_post_owner_overlap_count"
+    )
+    result["issues_with_any_pre_issue_owner_became_post_issue_owner"] = positive_count(
+        "any_pre_issue_owner_became_post_issue_owner"
+    )
+    result["issues_with_top_pre_issue_owner_became_post_issue_owner"] = positive_count(
+        "top_pre_issue_owner_became_post_issue_owner"
+    )
+
+    result["issues_with_post_issue_owners_with_pre_issue_repo_history"] = positive_count(
+        "any_post_issue_owner_with_pre_issue_repo_history"
+    )
+    result["issues_with_post_issue_owners_with_pre_issue_file_history"] = positive_count(
+        "any_post_issue_owner_with_pre_issue_file_history"
+    )
+
+    result["issues_with_issue_author_as_post_issue_owner"] = positive_count(
+        "issue_author_is_post_issue_owner"
+    )
+    result["issues_with_issue_author_pre_issue_repo_contributor_became_post_issue_owner"] = positive_count(
+        "issue_author_pre_issue_repo_contributor_became_post_issue_owner"
+    )
+    result["issues_with_issue_author_pre_issue_file_contributor_became_post_issue_owner"] = positive_count(
+        "issue_author_pre_issue_file_contributor_became_post_issue_owner"
+    )
+
+    result["issues_with_any_commenter_as_post_issue_owner"] = positive_count(
+        "any_commenter_is_eventual_post_issue_owner"
+    )
+    result["issues_with_top_commenter_as_post_issue_owner"] = positive_count(
+        "top_commenter_is_eventual_post_issue_owner"
+    )
+    result["issues_with_any_pre_issue_repo_contributor_commenter_as_post_issue_owner"] = positive_count(
+        "any_pre_issue_repo_contributor_commenter_is_eventual_post_issue_owner"
+    )
+    result["issues_with_any_pre_issue_file_contributor_commenter_as_post_issue_owner"] = positive_count(
+        "any_pre_issue_file_contributor_commenter_is_eventual_post_issue_owner"
+    )
+
+    result["mean_pre_post_owner_jaccard"] = mean_numeric(
+        "pre_post_owner_jaccard"
+    )
+    result["mean_share_post_issue_owners_with_pre_issue_repo_history"] = mean_numeric(
+        "share_post_issue_owners_with_pre_issue_repo_history"
+    )
+    result["mean_share_post_issue_owners_with_pre_issue_file_history"] = mean_numeric(
+        "share_post_issue_owners_with_pre_issue_file_history"
+    )
+    result["mean_share_commenters_eventual_post_issue_owners"] = mean_numeric(
+        "share_commenters_eventual_post_issue_owners"
+    )
+
+    result["median_pre_post_owner_overlap_count"] = median_numeric(
+        "pre_post_owner_overlap_count",
+        default_value=0.0,
+    )
+    result["median_post_issue_owner_count_for_continuity"] = median_numeric(
+        "post_issue_owner_count_for_continuity",
+        default_value=0.0,
+    )
+
+    if "continuity_pre_issue_repo_commit_leakage_rows" in df.columns:
+        result["continuity_pre_issue_repo_commit_leakage_rows"] = int(
+            pd.to_numeric(df["continuity_pre_issue_repo_commit_leakage_rows"], errors="coerce").fillna(0).sum()
+        )
+    else:
+        result["continuity_pre_issue_repo_commit_leakage_rows"] = 0
+
+    if "continuity_pre_issue_file_commit_leakage_rows" in df.columns:
+        result["continuity_pre_issue_file_commit_leakage_rows"] = int(
+            pd.to_numeric(df["continuity_pre_issue_file_commit_leakage_rows"], errors="coerce").fillna(0).sum()
+        )
+    else:
+        result["continuity_pre_issue_file_commit_leakage_rows"] = 0
+
+    result["continuity_pre_issue_repo_timestamp_missing_issues"] = positive_count(
+        "continuity_pre_issue_repo_timestamp_missing"
+    )
+    result["continuity_pre_issue_file_timestamp_missing_issues"] = positive_count(
+        "continuity_pre_issue_file_timestamp_missing"
+    )
 
     result["median_linked_file_count_all"] = median_numeric("ownership_linked_file_count_all", default_value=0.0)
     result["median_linked_file_count_high_confidence"] = median_numeric("ownership_linked_file_count_high_confidence", default_value=0.0)
@@ -1948,6 +3347,21 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
     commits_df = prepare_commits_frame(commits_df)
     commits_resolved_df = prepare_commits_resolved_frame(commits_resolved_df, exclude_bots=exclude_bots)
     commit_files_df = prepare_commit_files_frame(commit_files_df)
+    repo_contribution_history_df = prepare_repo_contribution_history_frame(commits_resolved_df)
+    result["repo_participant_role_commit_rows_available"] = int(len(repo_contribution_history_df))
+    if not repo_contribution_history_df.empty:
+        result["repo_participant_role_distinct_contributors_available"] = int(
+            repo_contribution_history_df["commit_author_contributor_key"].dropna().nunique()
+        )
+    file_contribution_history_df = prepare_file_contribution_history_frame(commits_resolved_df, commit_files_df)
+    result["file_participant_role_touch_rows_available"] = int(len(file_contribution_history_df))
+    if not file_contribution_history_df.empty:
+        result["file_participant_role_distinct_contributors_available"] = int(
+            file_contribution_history_df["commit_author_contributor_key"].dropna().nunique()
+        )
+        result["file_participant_role_distinct_files_available"] = int(
+            file_contribution_history_df["file_path"].dropna().nunique()
+        )
 
     high_conf_levels = get_ownership_option(config, "high_confidence_issue_file_levels", ["high"])
     high_conf_levels = {normalize_value(value) for value in list(high_conf_levels or ["high"]) if
@@ -1977,6 +3391,7 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
             comments_by_issue_number.setdefault(int(issue_number), []).append(row)
 
     issue_feature_rows = []
+    conservative_fallback_issue_counts_by_analysis_set = {}
     for issue_row in issues_df.to_dict(orient="records"):
         issue_key = (
             issue_row.get("repo_full_name"),
@@ -1988,7 +3403,22 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
             {"all_link_row_count": 0, "linked_file_count_all": 0, "linked_file_count_high_confidence": 0, "file_rows": []},
         )
         issue_comments = comments_by_issue_number.get(issue_key[2], []) if issue_key[2] is not None else []
-        discussion_summary = build_discussion_summary(pd.DataFrame(issue_comments))
+        issue_comments_df = pd.DataFrame(issue_comments)
+        discussion_summary = build_discussion_summary(issue_comments_df)
+        participant_role_features = summarize_repo_level_participant_role_features(
+            issue_row,
+            issue_comments_df,
+            repo_contribution_history_df,
+            config,
+        )
+        file_participant_role_features = summarize_file_level_participant_role_features(
+            issue_row,
+            issue_comments_df,
+            issue_file_payload,
+            file_contribution_history_df,
+            config,
+        )
+        participant_role_features.update(file_participant_role_features)
 
         pr_merge_rows = build_issue_pr_merge_evidence(issue_row, pr_maps)
         pr_exact_rows = build_issue_pr_exact_commit_evidence(issue_row, pr_maps)
@@ -2023,6 +3453,17 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
         contributor_summary_any_pre = compute_contributor_summary(issue_row, selected_any_pre_issue_rows)
         contributor_summary_any_post = compute_contributor_summary(issue_row, selected_any_post_issue_rows)
 
+        continuity_features = summarize_pre_post_continuity_features(
+            issue_row=issue_row,
+            issue_comments_df=issue_comments_df,
+            issue_file_payload=issue_file_payload,
+            repo_history_df=repo_contribution_history_df,
+            file_history_df=file_contribution_history_df,
+            selected_any_pre_issue_rows=selected_any_pre_issue_rows,
+            selected_any_post_issue_rows=selected_any_post_issue_rows,
+            config=config,
+        )
+
         issue_feature_row = build_issue_feature_row(
             issue_row,
             issue_file_payload,
@@ -2044,9 +3485,16 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
             sparse_thresholds,
             repo_policy,
         )
+        issue_feature_row.update(participant_role_features)
+        issue_feature_row.update(continuity_features)
         issue_feature_rows.append(issue_feature_row)
         writer.add_issue_row(issue_feature_row)
         result["issue_rows_written"] += 1
+        if selected_conservative_pre_issue_rows:
+            analysis_set = clean_text(issue_row.get("analysis_set")) or "missing"
+            conservative_fallback_issue_counts_by_analysis_set[analysis_set] = (
+                conservative_fallback_issue_counts_by_analysis_set.get(analysis_set, 0) + 1
+            )
 
         linked_pr_rows = resolve_linked_pr_rows(issue_row, pr_maps)
         if linked_pr_rows:
@@ -2089,13 +3537,45 @@ def process_repo(config, logger, repo_row, target_issue_lookup, repo_id_lookup, 
                 and selected_pr_head_count == 0
         ) else 0
 
-        if write_evidence_table:
-            for evidence_row in all_evidence_rows:
+        for evidence_row in all_evidence_rows:
+            selected_conservative_value = pd.to_numeric(
+                evidence_row.get("selected_for_conservative_pre_issue_fallback"),
+                errors="coerce",
+            )
+            selected_conservative_flag = (
+                int(selected_conservative_value) if pd.notna(selected_conservative_value) else 0
+            )
+
+            if selected_conservative_flag == 1:
+                bucket = normalize_value(evidence_row.get("ownership_time_bucket"))
+                if bucket == "pre_issue":
+                    result["selected_conservative_pre_issue_rows_with_pre_issue_bucket"] += 1
+                elif bucket == "post_issue":
+                    result["selected_conservative_pre_issue_rows_with_post_issue_bucket"] += 1
+                else:
+                    result["selected_conservative_pre_issue_rows_with_unknown_bucket"] += 1
+
+                issue_created_at = safe_to_datetime(evidence_row.get("issue_created_at"))
+                commit_timestamp = safe_to_datetime(evidence_row.get("commit_timestamp"))
+
+                if bucket == "pre_issue" and pd.notna(issue_created_at) and pd.notna(commit_timestamp):
+                    if commit_timestamp > issue_created_at:
+                        result["selected_conservative_pre_issue_rows_with_pre_issue_leakage"] += 1
+
+                if bucket == "post_issue" and pd.notna(issue_created_at) and pd.notna(commit_timestamp):
+                    if commit_timestamp <= issue_created_at:
+                        result["selected_conservative_pre_issue_rows_with_post_issue_leakage"] += 1
+
+            if write_evidence_table:
                 writer.add_evidence_row(evidence_row)
                 result["evidence_rows_written"] += 1
 
     writer.finalize()
     summarize_repo_metrics(result, issue_feature_rows)
+    result["issues_with_selected_conservative_pre_issue_fallback_by_analysis_set"] = json.dumps(
+        conservative_fallback_issue_counts_by_analysis_set,
+        sort_keys=True,
+    )
     result["status"] = "completed"
     return result
 

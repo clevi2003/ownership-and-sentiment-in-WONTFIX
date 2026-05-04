@@ -350,6 +350,18 @@ ownership_features:
   conservative_pre_issue_require_resolved_author: true
   conservative_pre_issue_exclude_if_any_high_conf_pr_evidence: false
   conservative_pre_issue_counts_toward_usable_any: true
+  pre_issue_repo_major_contributor_rank_threshold: 5
+  pre_issue_repo_major_contributor_share_threshold: 0.05
+  pre_issue_file_major_contributor_rank_threshold: 3
+  pre_issue_file_major_contributor_share_threshold: 0.10
+  pre_issue_min_commits_for_repo_contributor: 1
+  pre_issue_min_commits_for_major_repo_contributor: 2
+  pre_issue_min_distinct_days_for_major_repo_contributor: 1
+  participant_role_require_resolved_key: true
+  participant_role_file_link_scope: "all" # all | high_confidence
+  pre_issue_min_commits_for_file_contributor: 1
+  pre_issue_min_commits_for_major_file_contributor: 2
+  pre_issue_min_distinct_days_for_major_file_contributor: 1
 
 identity_resolution:
   enabled: true
@@ -474,6 +486,12 @@ outputs:
   issue_ownership_features_table_fuzzy: "./data/features/ownership_fuzzy/issue_ownership_features_fuzzy.parquet"
   issue_file_ownership_evidence_table_fuzzy: "./data/features/ownership_fuzzy/issue_file_ownership_evidence_fuzzy.parquet"
   ownership_feature_qa_summary_csv_fuzzy: "./logs/qa/issue_ownership_feature_qa_summary_fuzzy.csv"
+  contributor_repo_ownership_profiles_table: "./data/features/ownership/contributor_repo_ownership_profiles.parquet"
+  contributor_file_ownership_profiles_table: "./data/features/ownership/contributor_file_ownership_profiles.parquet"
+  contributor_ownership_profile_qa_summary_csv: "./logs/qa/contributor_ownership_profile_qa_summary.csv"
+  contributor_repo_ownership_profiles_table_fuzzy: "./data/features/ownership_fuzzy/contributor_repo_ownership_profiles_fuzzy.parquet"
+  contributor_file_ownership_profiles_table_fuzzy: "./data/features/ownership_fuzzy/contributor_file_ownership_profiles_fuzzy.parquet"
+  contributor_ownership_profile_qa_summary_csv_fuzzy: "./logs/qa/contributor_ownership_profile_qa_summary_fuzzy.csv"
 
 checkpointing:
   enabled: true
