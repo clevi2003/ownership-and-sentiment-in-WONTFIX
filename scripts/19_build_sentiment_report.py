@@ -38,6 +38,14 @@ DEFAULT_REPORT_NAME = "emotion_sentiment_analysis_report.md"
 
 UT_ORANGE = "#FF8200"
 UT_GREY = "#4B4B4B"
+MULTI_COLOR_PALETTE = [
+    "#FF8200",  # RGB 255/130/0
+    "#4B4B4B",  # RGB 75/75/75
+    "#FDB736",  # RGB 253/183/54
+    "#C8102E",  # RGB 200/16/46
+    "#0B2341",  # RGB 11/35/65
+    "#115740",  # RGB 17/87/64
+]
 
 
 # -----------------------------
@@ -45,7 +53,6 @@ UT_GREY = "#4B4B4B"
 # -----------------------------
 
 def read_table(path: Optional[str]) -> pd.DataFrame:
-    """Read a parquet/csv/json/jsonl file into a DataFrame. Missing paths return empty DataFrames."""
     if not path:
         return pd.DataFrame()
 
@@ -67,7 +74,6 @@ def read_table(path: Optional[str]) -> pd.DataFrame:
 
 
 def ensure_columns(df: pd.DataFrame, columns: Iterable[str]) -> pd.DataFrame:
-    """Make sure expected columns exist so later operations do not crash."""
     out = df.copy()
     for col in columns:
         if col not in out.columns:
@@ -97,7 +103,6 @@ def fmt_float(value: object, digits: int = 3) -> str:
 
 
 def md_table(df: pd.DataFrame, max_rows: int = 20, float_digits: int = 3) -> str:
-    """Convert a DataFrame to a compact Markdown table."""
     if df is None or df.empty:
         return "_No data available._"
 
@@ -123,8 +128,13 @@ def slugify_filename(value: str) -> str:
     return value or "file"
 
 
+def get_multi_color_palette(n: int, start_index: int = 0) -> list[str]:
+    if n <= 0:
+        return []
+    return [MULTI_COLOR_PALETTE[(start_index + i) % len(MULTI_COLOR_PALETTE)] for i in range(n)]
+
+
 def save_dataframe_csv(df: pd.DataFrame, output_dir: Path, filename: str) -> Optional[Path]:
-    """Save a DataFrame as CSV when it has data. Returns the path or None."""
     if df is None or df.empty:
         return None
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -152,10 +162,6 @@ def markdown_image(path: Path, report_dir: Path, alt_text: str) -> str:
 
 
 def prepare_issue_level_emotions(emotion_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Prefer issue-level comment emotion summaries so each issue contributes once.
-    If those rows are not available, fall back to all rows with dominant emotions.
-    """
     if emotion_df.empty:
         return pd.DataFrame()
 
@@ -418,14 +424,6 @@ def joined_emotion_sentiment_summary(emotion_df: pd.DataFrame, issue_sent_df: pd
 
 
 def emotion_set_comparison_across_repos(emotion_df: pd.DataFrame, issue_sent_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compare dominant emotions between comparison and wontfix issues.
-
-    Uses issue-level emotion summaries and joins to issue sentiment features so the
-    analysis_set column can be attached. Aggregation is done both globally and by
-    repository, then the repository-level shares are averaged so large repos do not
-    completely dominate the repo-level view.
-    """
     if emotion_df.empty or issue_sent_df.empty:
         return pd.DataFrame()
 
@@ -466,7 +464,6 @@ def emotion_set_comparison_across_repos(emotion_df: pd.DataFrame, issue_sent_df:
 
     total_by_set = merged.groupby("analysis_set").size()
 
-    # Repo-normalized shares: calculate each repo's emotion distribution inside each set, then average.
     repo_emotion_counts = (
         merged.groupby(["repo_full_name", "analysis_set", "dominant_emotion"])
         .size()
@@ -600,7 +597,6 @@ def create_graphs(
     def add_graph(title: str, description: str, path: Path) -> None:
         graphs.append({"title": title, "description": description, "path": path})
 
-    # 1. Required pie chart: distribution of emotions over all repos.
     issue_emo = prepare_issue_level_emotions(emotion_df)
     if not issue_emo.empty:
         counts = issue_emo["dominant_emotion"].value_counts().sort_values(ascending=False)
@@ -610,6 +606,7 @@ def create_graphs(
                 counts.values,
                 labels=None,
                 startangle=90,
+                colors=get_multi_color_palette(len(counts)),
             )
             legend_labels = [
                 f"{emotion} ({(value / counts.sum()) * 100:.1f}%)"
@@ -644,7 +641,6 @@ def create_graphs(
                 path,
             )
 
-            # Extra neutral-removed charts make smaller emotion categories easier to compare.
             non_neutral_counts = counts[counts.index.astype(str).str.lower() != "neutral"]
             if not non_neutral_counts.empty:
                 plt.figure(figsize=(10, 8))
@@ -652,6 +648,7 @@ def create_graphs(
                     non_neutral_counts.values,
                     labels=None,
                     startangle=90,
+                    colors=get_multi_color_palette(len(non_neutral_counts), start_index=1),
                 )
                 legend_labels = [
                     f"{emotion} ({(value / non_neutral_counts.sum()) * 100:.1f}%)"
@@ -674,7 +671,7 @@ def create_graphs(
                 )
 
                 plt.figure(figsize=(9, 5))
-                non_neutral_counts.plot(kind="bar", color=UT_ORANGE)
+                non_neutral_counts.plot(kind="bar", color=get_multi_color_palette(1, start_index=1)[0])
                 plt.title("Dominant Emotion Counts Across All Repositories, Excluding Neutral")
                 plt.xlabel("Dominant emotion")
                 plt.ylabel("Number of issue-level emotion summaries")
@@ -686,12 +683,130 @@ def create_graphs(
                     path,
                 )
 
-    # 2. Comparison vs Wontfix emotion shares.
     if comparison_df is not None and not comparison_df.empty:
         needed = ["dominant_emotion", "comparison_share", "wontfix_share"]
         if all(col in comparison_df.columns for col in needed):
             plot_df = comparison_df[needed].copy().set_index("dominant_emotion")
             plot_df = plot_df.sort_values("wontfix_share", ascending=False)
+
+            comparison_pie = plot_df["comparison_share"].dropna()
+            comparison_pie = comparison_pie[comparison_pie > 0]
+            if not comparison_pie.empty:
+                plt.figure(figsize=(10, 8))
+                wedges, _ = plt.pie(
+                    comparison_pie.values,
+                    labels=None,
+                    startangle=90,
+                    colors=get_multi_color_palette(len(comparison_pie)),
+                )
+                legend_labels = [
+                    f"{emotion} ({(value / comparison_pie.sum()) * 100:.1f}%)"
+                    for emotion, value in zip(comparison_pie.index.astype(str), comparison_pie.values)
+                ]
+                plt.title("Comparison Set Emotion Breakdown")
+                plt.legend(
+                    wedges,
+                    legend_labels,
+                    title="Dominant emotion",
+                    loc="center left",
+                    bbox_to_anchor=(1.02, 0.5),
+                    frameon=False,
+                )
+                path = save_current_plot(output_dir, "comparison_set_emotion_breakdown_pie")
+                add_graph(
+                    "Comparison Set Emotion Breakdown",
+                    "Pie chart showing the dominant emotion breakdown for issues in the comparison set.",
+                    path,
+                )
+
+            comparison_pie_excluding_neutral = comparison_pie[comparison_pie.index.astype(str).str.lower() != "neutral"]
+            if not comparison_pie_excluding_neutral.empty:
+                plt.figure(figsize=(10, 8))
+                wedges, _ = plt.pie(
+                    comparison_pie_excluding_neutral.values,
+                    labels=None,
+                    startangle=90,
+                    colors=get_multi_color_palette(len(comparison_pie_excluding_neutral), start_index=1),
+                )
+                legend_labels = [
+                    f"{emotion} ({(value / comparison_pie_excluding_neutral.sum()) * 100:.1f}%)"
+                    for emotion, value in zip(comparison_pie_excluding_neutral.index.astype(str), comparison_pie_excluding_neutral.values)
+                ]
+                plt.title("Comparison Set Emotion Breakdown, Excluding Neutral")
+                plt.legend(
+                    wedges,
+                    legend_labels,
+                    title="Dominant emotion",
+                    loc="center left",
+                    bbox_to_anchor=(1.02, 0.5),
+                    frameon=False,
+                )
+                path = save_current_plot(output_dir, "comparison_set_emotion_breakdown_pie_excluding_neutral")
+                add_graph(
+                    "Comparison Set Emotion Breakdown, Excluding Neutral",
+                    "Pie chart showing the dominant emotion breakdown for the comparison set after removing neutral.",
+                    path,
+                )
+
+            wontfix_pie = plot_df["wontfix_share"].dropna()
+            wontfix_pie = wontfix_pie[wontfix_pie > 0]
+            if not wontfix_pie.empty:
+                plt.figure(figsize=(10, 8))
+                wedges, _ = plt.pie(
+                    wontfix_pie.values,
+                    labels=None,
+                    startangle=90,
+                    colors=get_multi_color_palette(len(wontfix_pie)),
+                )
+                legend_labels = [
+                    f"{emotion} ({(value / wontfix_pie.sum()) * 100:.1f}%)"
+                    for emotion, value in zip(wontfix_pie.index.astype(str), wontfix_pie.values)
+                ]
+                plt.title("Wontfix Set Emotion Breakdown")
+                plt.legend(
+                    wedges,
+                    legend_labels,
+                    title="Dominant emotion",
+                    loc="center left",
+                    bbox_to_anchor=(1.02, 0.5),
+                    frameon=False,
+                )
+                path = save_current_plot(output_dir, "wontfix_set_emotion_breakdown_pie")
+                add_graph(
+                    "Wontfix Set Emotion Breakdown",
+                    "Pie chart showing the dominant emotion breakdown for issues in the wontfix set.",
+                    path,
+                )
+
+            wontfix_pie_excluding_neutral = wontfix_pie[wontfix_pie.index.astype(str).str.lower() != "neutral"]
+            if not wontfix_pie_excluding_neutral.empty:
+                plt.figure(figsize=(10, 8))
+                wedges, _ = plt.pie(
+                    wontfix_pie_excluding_neutral.values,
+                    labels=None,
+                    startangle=90,
+                    colors=get_multi_color_palette(len(wontfix_pie_excluding_neutral), start_index=1),
+                )
+                legend_labels = [
+                    f"{emotion} ({(value / wontfix_pie_excluding_neutral.sum()) * 100:.1f}%)"
+                    for emotion, value in zip(wontfix_pie_excluding_neutral.index.astype(str), wontfix_pie_excluding_neutral.values)
+                ]
+                plt.title("Wontfix Set Emotion Breakdown, Excluding Neutral")
+                plt.legend(
+                    wedges,
+                    legend_labels,
+                    title="Dominant emotion",
+                    loc="center left",
+                    bbox_to_anchor=(1.02, 0.5),
+                    frameon=False,
+                )
+                path = save_current_plot(output_dir, "wontfix_set_emotion_breakdown_pie_excluding_neutral")
+                add_graph(
+                    "Wontfix Set Emotion Breakdown, Excluding Neutral",
+                    "Pie chart showing the dominant emotion breakdown for the wontfix set after removing neutral.",
+                    path,
+                )
+
             plt.figure(figsize=(10, 5))
             plot_df[["comparison_share", "wontfix_share"]].plot(kind="bar", ax=plt.gca(), color=[UT_ORANGE, UT_GREY])
             plt.title("Emotion Share by Analysis Set")
@@ -720,11 +835,10 @@ def create_graphs(
                 path,
             )
 
-            # Neutral-removed comparison charts help show the distribution among non-neutral emotions.
             non_neutral_plot_df = plot_df[plot_df.index.astype(str).str.lower() != "neutral"].copy()
             if not non_neutral_plot_df.empty:
                 plt.figure(figsize=(10, 5))
-                non_neutral_plot_df[["comparison_share", "wontfix_share"]].plot(kind="bar", ax=plt.gca(), color=[UT_ORANGE, UT_GREY])
+                non_neutral_plot_df[["comparison_share", "wontfix_share"]].plot(kind="bar", ax=plt.gca(), color=get_multi_color_palette(2, start_index=1))
                 plt.title("Emotion Share by Analysis Set, Excluding Neutral")
                 plt.xlabel("Dominant emotion")
                 plt.ylabel("Share of issues")
@@ -743,7 +857,7 @@ def create_graphs(
                 plt.barh(
                     non_neutral_diff_df["dominant_emotion"].astype(str),
                     pd.to_numeric(non_neutral_diff_df["share_diff_wontfix_minus_comparison"], errors="coerce"),
-                    color=UT_ORANGE,
+                    color=get_multi_color_palette(1, start_index=1)[0],
                 )
                 plt.title("Emotion Share Difference: Wontfix Minus Comparison, Excluding Neutral")
                 plt.xlabel("Share difference")
@@ -755,7 +869,6 @@ def create_graphs(
                     path,
                 )
 
-    # 3. Average issue comment sentiment by analysis set.
     if not issue_sent_df.empty:
         sent = ensure_columns(issue_sent_df, ["analysis_set", "mean_comment_sentiment"]).copy()
         sent["mean_comment_sentiment"] = pd.to_numeric(sent["mean_comment_sentiment"], errors="coerce")
@@ -775,7 +888,6 @@ def create_graphs(
                 path,
             )
 
-    # 4. Positive, negative, and neutral shares by analysis set.
     if not issue_sent_df.empty:
         share_cols = ["positive_comment_share", "negative_comment_share", "neutral_comment_share"]
         sent = ensure_columns(issue_sent_df, ["analysis_set", *share_cols]).copy()
@@ -785,7 +897,7 @@ def create_graphs(
         if not sent.empty and any(sent[col].notna().any() for col in share_cols):
             grouped = sent.groupby("analysis_set")[share_cols].mean()
             plt.figure(figsize=(9, 5))
-            grouped.plot(kind="bar", ax=plt.gca())
+            grouped.plot(kind="bar", ax=plt.gca(), color=get_multi_color_palette(len(grouped.columns)))
             plt.title("Average Comment Sentiment Shares by Analysis Set")
             plt.xlabel("Analysis set")
             plt.ylabel("Average share")
@@ -798,7 +910,6 @@ def create_graphs(
                 path,
             )
 
-    # 5. Distribution of issue-level mean comment sentiment.
     if not issue_sent_df.empty:
         values = numeric_series(issue_sent_df, "mean_comment_sentiment").dropna()
         if not values.empty:
@@ -814,7 +925,6 @@ def create_graphs(
                 path,
             )
 
-    # 6. Distribution of comment-level sentiment.
     if not comment_sent_df.empty:
         values = numeric_series(comment_sent_df, "sentiment_compound").dropna()
         if not values.empty:
@@ -830,7 +940,6 @@ def create_graphs(
                 path,
             )
 
-    # 7. Repository-level average sentiment, limited to top_n by issue count.
     repo_summary = repo_level_summary(issue_sent_df)
     if not repo_summary.empty:
         plot_df = repo_summary.head(top_n).copy()
@@ -872,7 +981,6 @@ def write_report(
     issue_sent_df = read_table(issue_sentiment_path)
     comment_sent_df = read_table(comment_sentiment_path)
 
-    # Build all summary tables first.
     tables = {
         "dataset_overview": basic_dataset_summary(emotion_df, issue_sent_df, comment_sent_df),
         "dominant_emotion_distribution": emotion_distribution(emotion_df),
@@ -886,14 +994,12 @@ def write_report(
         "most_positive_issues": top_positive_issues(issue_sent_df, limit=top_n),
     }
 
-    # Save all non-empty summary tables as CSVs in the output folder.
     csv_paths: dict[str, Path] = {}
     for name, df in tables.items():
         csv_path = save_dataframe_csv(df, output_dir, f"{name}.csv")
         if csv_path:
             csv_paths[name] = csv_path
 
-    # Create graphs after the comparison table is available.
     graphs = create_graphs(
         output_dir=output_dir,
         emotion_df=emotion_df,
@@ -939,19 +1045,16 @@ def write_report(
         lines.append("_No graphs could be created because the required data was missing or empty._")
     else:
         for graph in graphs:
-            path = graph["path"]
             lines.append(subsection(str(graph["title"])))
             lines.append(str(graph["description"]))
             lines.append("")
-            lines.append(markdown_image(Path(path), output_dir, str(graph["title"])))
+            lines.append(markdown_image(Path(graph["path"]), output_dir, str(graph["title"])))
 
     lines.append(section("Emotion Feature Summary"))
     if emotion_df.empty:
         lines.append("_Emotion feature file was missing or empty._")
     else:
-        lines.append(
-            "The emotion output includes rows for issue bodies, issue comments, and issue-level comment emotion summaries when those rows are present."
-        )
+        lines.append("The emotion output includes rows for issue bodies, issue comments, and issue-level comment emotion summaries when those rows are present.")
         lines.append(subsection("Dominant Emotion Distribution"))
         lines.append(md_table(tables["dominant_emotion_distribution"], max_rows=30))
         lines.append(subsection("Issue-Level Comment Emotion Summary"))
@@ -961,9 +1064,7 @@ def write_report(
     if issue_sent_df.empty:
         lines.append("_Issue sentiment feature file was missing or empty._")
     else:
-        lines.append(
-            "This section summarizes sentiment at the issue level, including average comment sentiment, positive/negative/neutral comment shares, and how sentiment changes from early to late comments."
-        )
+        lines.append("This section summarizes sentiment at the issue level, including average comment sentiment, positive/negative/neutral comment shares, and how sentiment changes from early to late comments.")
         lines.append(md_table(tables["issue_level_sentiment_summary"], max_rows=20))
 
     lines.append(section("Comment-Level Sentiment Summary"))
@@ -976,59 +1077,27 @@ def write_report(
     lines.append(section("Combined Emotion + Sentiment View"))
     joined = tables["combined_emotion_sentiment_view"]
     if joined.empty:
-        lines.append(
-            "_Could not create a joined emotion/sentiment summary. This usually means one input is missing, or issue keys did not match between files._"
-        )
+        lines.append("_Could not create a joined emotion/sentiment summary. This usually means one input is missing, or issue keys did not match between files._")
     else:
-        lines.append(
-            "This table joins issue-level comment emotion summaries with issue-level sentiment features using `repo_full_name` and `issue_number`."
-        )
+        lines.append("This table joins issue-level comment emotion summaries with issue-level sentiment features using `repo_full_name` and `issue_number`.")
         lines.append(md_table(joined, max_rows=40))
 
     lines.append(section("Comparison vs Wontfix Emotion Comparison Across Repositories"))
     comparison = tables["comparison_vs_wontfix_emotion_comparison"]
     if comparison.empty:
-        lines.append(
-            "_Could not create the comparison vs wontfix emotion comparison. This usually means `analysis_set`, `repo_full_name`, or `issue_number` did not match between the emotion and issue sentiment files._"
-        )
+        lines.append("_Could not create the comparison vs wontfix emotion comparison. This usually means `analysis_set`, `repo_full_name`, or `issue_number` did not match between the emotion and issue sentiment files._")
     else:
-        lines.append(
-            "This section compares the dominant issue-level comment emotions between the `comparison` and `wontfix` sets. It is split into smaller tables so it is easier to read on narrow screens."
-        )
+        lines.append("This section compares the dominant issue-level comment emotions between the `comparison` and `wontfix` sets. It is split into smaller tables so it is easier to read on narrow screens.")
 
-        counts_table = comparison[
-            [
-                "dominant_emotion",
-                "comparison_issues",
-                "wontfix_issues",
-                "comparison_share",
-                "wontfix_share",
-            ]
-        ].copy()
+        counts_table = comparison[["dominant_emotion", "comparison_issues", "wontfix_issues", "comparison_share", "wontfix_share"]].copy()
         lines.append(subsection("Issue Counts and Overall Shares"))
         lines.append(md_table(counts_table, max_rows=30))
 
-        repo_table = comparison[
-            [
-                "dominant_emotion",
-                "comparison_repos",
-                "wontfix_repos",
-                "comparison_avg_repo_share",
-                "wontfix_avg_repo_share",
-            ]
-        ].copy()
+        repo_table = comparison[["dominant_emotion", "comparison_repos", "wontfix_repos", "comparison_avg_repo_share", "wontfix_avg_repo_share"]].copy()
         lines.append(subsection("Repository Coverage"))
         lines.append(md_table(repo_table, max_rows=30))
 
-        diff_table = comparison[
-            [
-                "dominant_emotion",
-                "share_diff_wontfix_minus_comparison",
-                "avg_repo_share_diff_wontfix_minus_comparison",
-                "comparison_avg_confidence",
-                "wontfix_avg_confidence",
-            ]
-        ].copy()
+        diff_table = comparison[["dominant_emotion", "share_diff_wontfix_minus_comparison", "avg_repo_share_diff_wontfix_minus_comparison", "comparison_avg_confidence", "wontfix_avg_confidence"]].copy()
         lines.append(subsection("Differences and Confidence"))
         lines.append(md_table(diff_table, max_rows=30))
 
@@ -1049,7 +1118,7 @@ def write_report(
     lines.append("The script generated the following summary CSV files and chart images in the output folder.")
     if csv_paths:
         lines.append(subsection("CSV Summary Tables"))
-        for name, path in sorted(csv_paths.items()):
+        for _, path in sorted(csv_paths.items()):
             lines.append(f"- `{path.name}`")
     if graphs:
         lines.append(subsection("Graph Images"))
@@ -1057,15 +1126,9 @@ def write_report(
             lines.append(f"- `{Path(graph['path']).name}`")
 
     lines.append(section("Suggested Interpretation Notes"))
-    lines.append(
-        "- `mean_comment_sentiment` gives the overall tone of the issue discussion. Higher values are more positive; lower values are more negative."
-    )
-    lines.append(
-        "- `comment_sentiment_change_late_minus_early` can help show whether the discussion became more positive or more negative over time."
-    )
-    lines.append(
-        "- `dominant_emotion` from the issue-level comment summary shows the most common detected emotion across comments for an issue."
-    )
+    lines.append("- `mean_comment_sentiment` gives the overall tone of the issue discussion. Higher values are more positive; lower values are more negative.")
+    lines.append("- `comment_sentiment_change_late_minus_early` can help show whether the discussion became more positive or more negative over time.")
+    lines.append("- `dominant_emotion` from the issue-level comment summary shows the most common detected emotion across comments for an issue.")
     lines.append("- `comment_concentration_ratio` can help show whether a discussion was dominated by one or a few commenters.")
     lines.append("- Emotion confidence and sentiment compound scores should be treated as model-derived estimates, not ground-truth labels.")
 
