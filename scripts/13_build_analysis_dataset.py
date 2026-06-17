@@ -6,6 +6,13 @@ from pathlib import Path
 
 import pandas as pd
 
+try:
+    import matplotlib.pyplot as plt
+except Exception:
+    plt = None
+
+SCRIPT_VERSION = "matched_set_id_attachment_v2026_06_17"
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -261,12 +268,17 @@ def get_stage_paths(config):
     if not qa_summary_path:
         qa_summary_path = "./logs/qa/analysis_dataset_qa_summary.csv"
 
+    qa_output_dir = getattr(outputs, "analysis_dataset_qa_output_dir", None)
+    if not qa_output_dir:
+        qa_output_dir = "./outputs/qa/dataset_building"
+
     return {
         "full_output_path": Path(full_output_path),
         "rq1_output_path": Path(rq1_output_path),
         "rq2_output_path": Path(rq2_output_path),
         "rq3_issue_base_output_path": Path(rq3_issue_base_output_path),
         "qa_summary_path": Path(qa_summary_path),
+        "qa_output_dir": Path(qa_output_dir),
         "run_manifest_path": Path(config.logging.qa_log_dir) / "13_build_analysis_dataset_run_manifest.json",
     }
 
@@ -816,6 +828,13 @@ def build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_issue_base_df, qa_metrics
             for key, value in full_df["comparison_group"].fillna("missing").astype(str).value_counts(dropna=False).items():
                 add(f"comparison_group_count__{key}", int(value))
 
+        if "matched_set_join_method" in full_df.columns:
+            for key, value in full_df["matched_set_join_method"].fillna("missing").astype(str).value_counts(dropna=False).items():
+                add(f"matched_set_join_method_count__{key}", int(value))
+
+        if "usable_for_matched_set_fe" in full_df.columns:
+            add("rows_usable_for_matched_set_fe", int(pd.to_numeric(full_df["usable_for_matched_set_fe"], errors="coerce").fillna(0).sum()))
+
         if "participant_role_file_coverage_flag" in full_df.columns:
             for key, value in full_df["participant_role_file_coverage_flag"].fillna("missing").astype(str).value_counts(
                     dropna=False).items():
@@ -856,6 +875,350 @@ def sort_output_frame(df):
         return df.reset_index(drop=True)
     return df.sort_values(sort_columns, kind="stable").reset_index(drop=True)
 
+
+def read_optional_table(path):
+    path = Path(path)
+    if not path.exists():
+        return pd.DataFrame()
+    suffix = path.suffix.lower()
+    if suffix == ".parquet":
+        return pd.read_parquet(path)
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix in {".json", ".jsonl", ".ndjson"}:
+        return pd.read_json(path, lines=suffix in {".jsonl", ".ndjson"})
+    raise ValueError(f"Unsupported matched-set lookup file format: {path}")
+
+
+def get_matched_set_lookup_path(config):
+    outputs = getattr(config, "outputs", None)
+    explicit_path = None
+    for attr_name in [
+        "wontfix_comparison_pairs_issue_lookup_csv",
+        "wontfix_comparison_pairs_issue_lookup_table",
+        "matched_set_issue_lookup_csv",
+        "matched_set_issue_lookup_table",
+    ]:
+        if outputs is not None and hasattr(outputs, attr_name):
+            value = getattr(outputs, attr_name)
+            if value:
+                explicit_path = value
+                break
+    if explicit_path:
+        return Path(explicit_path)
+
+    pair_path = None
+    for attr_name in ["wontfix_comparison_pairs_table", "wontfix_comparison_pairs"]:
+        if outputs is not None and hasattr(outputs, attr_name):
+            value = getattr(outputs, attr_name)
+            if value:
+                pair_path = Path(value)
+                break
+    if pair_path:
+        return pair_path.with_name(pair_path.stem + "_issue_lookup.csv")
+
+    return Path("./data/processed/wontfix_comparison_pairs_issue_lookup.csv")
+
+
+def normalize_matched_set_lookup(df):
+    columns = ["repo_full_name", "issue_id", "issue_number", "analysis_set", "matched_set_id"]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+
+    normalized = df.copy()
+    repo_col = find_first_present_column(normalized, ["repo_full_name", "repo_name", "full_name", "repo"])
+    issue_id_col = find_first_present_column(normalized, ["issue_id", "id"])
+    issue_number_col = find_first_present_column(normalized, ["issue_number", "number"])
+    analysis_set_col = find_first_present_column(normalized, ["analysis_set", "matched_set_analysis_set", "group"])
+    matched_set_col = find_first_present_column(normalized, ["matched_set_id", "match_set_id", "set_id"])
+
+    if repo_col is None or matched_set_col is None:
+        return pd.DataFrame(columns=columns)
+
+    out_df = pd.DataFrame()
+    out_df["repo_full_name"] = normalized[repo_col].astype(str)
+    out_df["issue_id"] = normalized[issue_id_col].apply(clean_text) if issue_id_col else None
+    out_df["issue_number"] = pd.to_numeric(normalized[issue_number_col], errors="coerce") if issue_number_col else pd.NA
+    out_df["analysis_set"] = normalized[analysis_set_col].apply(clean_text).str.lower() if analysis_set_col else None
+    out_df["matched_set_id"] = normalized[matched_set_col].apply(clean_text)
+
+    out_df = out_df[out_df["matched_set_id"].apply(has_real_value)].copy()
+    out_df["analysis_set"] = out_df["analysis_set"].fillna("missing")
+    out_df["issue_id"] = out_df["issue_id"].apply(clean_text)
+    out_df["issue_number"] = pd.to_numeric(out_df["issue_number"], errors="coerce")
+    return out_df[columns].drop_duplicates().reset_index(drop=True)
+
+
+def load_matched_set_lookup(config, logger):
+    lookup_path = get_matched_set_lookup_path(config)
+    lookup_df = read_optional_table(lookup_path)
+    lookup_df = normalize_matched_set_lookup(lookup_df)
+    if lookup_df.empty:
+        logger.warning("Matched-set lookup not found or empty | path=%s", lookup_path)
+    else:
+        logger.info(
+            "Loaded matched-set issue lookup | path=%s | rows=%s | matched_sets=%s",
+            lookup_path,
+            len(lookup_df),
+            lookup_df["matched_set_id"].nunique(),
+        )
+    return lookup_df, lookup_path
+
+
+def attach_matched_set_ids(base_df, matched_lookup_df, lookup_path, qa_metrics):
+    out_df = base_df.copy()
+    default_columns = {
+        "matched_set_id": pd.NA,
+        "matched_set_analysis_set": pd.NA,
+        "matched_set_join_method": "unmatched",
+        "matched_set_total_rows_in_analysis": 0,
+        "matched_set_wontfix_rows_in_analysis": 0,
+        "matched_set_comparison_rows_in_analysis": 0,
+        "has_matched_set": 0,
+        "usable_for_matched_set_fe": 0,
+    }
+    for column, default_value in default_columns.items():
+        if column not in out_df.columns:
+            out_df[column] = default_value
+
+    qa_metrics["matched_set_lookup_path"] = str(lookup_path)
+    qa_metrics["matched_set_lookup_rows"] = int(len(matched_lookup_df))
+    qa_metrics["matched_set_lookup_distinct_sets"] = int(matched_lookup_df["matched_set_id"].nunique()) if not matched_lookup_df.empty else 0
+    qa_metrics["matched_set_lookup_distinct_issues"] = int(matched_lookup_df.drop_duplicates(subset=["repo_full_name", "issue_id", "issue_number"]).shape[0]) if not matched_lookup_df.empty else 0
+
+    if out_df.empty or matched_lookup_df.empty:
+        qa_metrics["analysis_rows_with_matched_set_id"] = 0
+        qa_metrics["analysis_rows_missing_matched_set_id"] = int(len(out_df))
+        qa_metrics["matched_sets_in_analysis"] = 0
+        qa_metrics["matched_sets_valid_for_fe"] = 0
+        qa_metrics["analysis_rows_usable_for_matched_set_fe"] = 0
+        return out_df
+
+    lookup = matched_lookup_df.copy()
+    lookup["issue_id"] = lookup["issue_id"].apply(clean_text)
+    lookup["issue_number"] = pd.to_numeric(lookup["issue_number"], errors="coerce")
+
+    id_lookup = lookup[lookup["issue_id"].apply(has_real_value)].copy()
+    num_lookup = lookup[lookup["issue_number"].notna()].copy()
+
+    qa_metrics["matched_set_lookup_duplicate_repo_issue_id_keys"] = int(
+        id_lookup.duplicated(subset=["repo_full_name", "issue_id"]).sum()
+    ) if not id_lookup.empty else 0
+    qa_metrics["matched_set_lookup_duplicate_repo_issue_number_keys"] = int(
+        num_lookup.duplicated(subset=["repo_full_name", "issue_number"]).sum()
+    ) if not num_lookup.empty else 0
+
+    id_lookup = id_lookup.drop_duplicates(subset=["repo_full_name", "issue_id"], keep="first")
+    num_lookup = num_lookup.drop_duplicates(subset=["repo_full_name", "issue_number"], keep="first")
+
+    base_for_join = out_df[["repo_full_name", "issue_id", "issue_number", "analysis_set"]].copy()
+    base_for_join["issue_id"] = base_for_join["issue_id"].apply(clean_text)
+    base_for_join["issue_number"] = pd.to_numeric(base_for_join["issue_number"], errors="coerce")
+
+    if not id_lookup.empty:
+        id_join = base_for_join.merge(
+            id_lookup[["repo_full_name", "issue_id", "analysis_set", "matched_set_id"]].rename(
+                columns={"analysis_set": "matched_set_analysis_set_id_join"}
+            ),
+            on=["repo_full_name", "issue_id"],
+            how="left",
+        )
+        id_set = id_join["matched_set_id"]
+        id_analysis_set = id_join["matched_set_analysis_set_id_join"]
+    else:
+        id_set = pd.Series(pd.NA, index=out_df.index)
+        id_analysis_set = pd.Series(pd.NA, index=out_df.index)
+
+    if not num_lookup.empty:
+        num_join = base_for_join.merge(
+            num_lookup[["repo_full_name", "issue_number", "analysis_set", "matched_set_id"]].rename(
+                columns={"analysis_set": "matched_set_analysis_set_number_join"}
+            ),
+            on=["repo_full_name", "issue_number"],
+            how="left",
+        )
+        num_set = num_join["matched_set_id"]
+        num_analysis_set = num_join["matched_set_analysis_set_number_join"]
+    else:
+        num_set = pd.Series(pd.NA, index=out_df.index)
+        num_analysis_set = pd.Series(pd.NA, index=out_df.index)
+
+    id_set = id_set.reset_index(drop=True)
+    num_set = num_set.reset_index(drop=True)
+    id_analysis_set = id_analysis_set.reset_index(drop=True)
+    num_analysis_set = num_analysis_set.reset_index(drop=True)
+
+    both_match_disagree = id_set.notna() & num_set.notna() & (id_set.astype(str) != num_set.astype(str))
+    qa_metrics["matched_set_issue_id_number_conflict_rows"] = int(both_match_disagree.sum())
+
+    out_df["matched_set_id"] = id_set.combine_first(num_set)
+    out_df["matched_set_analysis_set"] = id_analysis_set.combine_first(num_analysis_set)
+    out_df["matched_set_join_method"] = "unmatched"
+    out_df.loc[id_set.notna(), "matched_set_join_method"] = "issue_id"
+    out_df.loc[id_set.isna() & num_set.notna(), "matched_set_join_method"] = "issue_number"
+    out_df["has_matched_set"] = out_df["matched_set_id"].notna().astype(int)
+
+    analysis_set_norm = out_df["analysis_set"].fillna("missing").astype(str).str.lower()
+    lookup_set_norm = out_df["matched_set_analysis_set"].fillna("missing").astype(str).str.lower()
+    mismatch_mask = out_df["has_matched_set"].eq(1) & lookup_set_norm.ne("missing") & analysis_set_norm.ne(lookup_set_norm)
+    qa_metrics["matched_set_analysis_set_mismatch_rows"] = int(mismatch_mask.sum())
+
+    matched_rows = out_df[out_df["has_matched_set"] == 1].copy()
+    if matched_rows.empty:
+        qa_metrics["analysis_rows_with_matched_set_id"] = 0
+        qa_metrics["analysis_rows_missing_matched_set_id"] = int(len(out_df))
+        qa_metrics["matched_sets_in_analysis"] = 0
+        qa_metrics["matched_sets_valid_for_fe"] = 0
+        qa_metrics["analysis_rows_usable_for_matched_set_fe"] = 0
+        return out_df
+
+    set_summary = (
+        matched_rows.assign(
+            __is_wontfix=analysis_set_norm.loc[matched_rows.index].eq("wontfix").astype(int),
+            __is_comparison=analysis_set_norm.loc[matched_rows.index].eq("comparison").astype(int),
+        )
+        .groupby("matched_set_id", dropna=False)
+        .agg(
+            matched_set_total_rows_in_analysis=("matched_set_id", "size"),
+            matched_set_wontfix_rows_in_analysis=("__is_wontfix", "sum"),
+            matched_set_comparison_rows_in_analysis=("__is_comparison", "sum"),
+            matched_set_repo_count=("repo_full_name", "nunique"),
+        )
+        .reset_index()
+    )
+    valid_set_ids = set(
+        set_summary.loc[
+            (set_summary["matched_set_wontfix_rows_in_analysis"] >= 1)
+            & (set_summary["matched_set_comparison_rows_in_analysis"] >= 1),
+            "matched_set_id",
+        ].astype(str)
+    )
+
+    for metric_col in [
+        "matched_set_total_rows_in_analysis",
+        "matched_set_wontfix_rows_in_analysis",
+        "matched_set_comparison_rows_in_analysis",
+    ]:
+        metric_map = set_summary.set_index("matched_set_id")[metric_col]
+        out_df[metric_col] = out_df["matched_set_id"].map(metric_map).fillna(0).astype(int)
+
+    out_df["usable_for_matched_set_fe"] = out_df["matched_set_id"].astype(str).isin(valid_set_ids).astype(int)
+
+    qa_metrics["analysis_rows_with_matched_set_id"] = int(out_df["has_matched_set"].sum())
+    qa_metrics["analysis_rows_missing_matched_set_id"] = int((out_df["has_matched_set"] == 0).sum())
+    qa_metrics["wontfix_rows_with_matched_set_id"] = int(((analysis_set_norm == "wontfix") & (out_df["has_matched_set"] == 1)).sum())
+    qa_metrics["comparison_rows_with_matched_set_id"] = int(((analysis_set_norm == "comparison") & (out_df["has_matched_set"] == 1)).sum())
+    qa_metrics["wontfix_rows_missing_matched_set_id"] = int(((analysis_set_norm == "wontfix") & (out_df["has_matched_set"] == 0)).sum())
+    qa_metrics["comparison_rows_missing_matched_set_id"] = int(((analysis_set_norm == "comparison") & (out_df["has_matched_set"] == 0)).sum())
+    qa_metrics["matched_sets_in_analysis"] = int(set_summary["matched_set_id"].nunique())
+    qa_metrics["matched_sets_with_wontfix"] = int((set_summary["matched_set_wontfix_rows_in_analysis"] >= 1).sum())
+    qa_metrics["matched_sets_with_comparison"] = int((set_summary["matched_set_comparison_rows_in_analysis"] >= 1).sum())
+    qa_metrics["matched_sets_valid_for_fe"] = int(len(valid_set_ids))
+    qa_metrics["matched_sets_cross_repo_in_analysis"] = int((set_summary["matched_set_repo_count"] > 1).sum())
+    qa_metrics["analysis_rows_usable_for_matched_set_fe"] = int(out_df["usable_for_matched_set_fe"].sum())
+    qa_metrics["wontfix_rows_usable_for_matched_set_fe"] = int(((analysis_set_norm == "wontfix") & (out_df["usable_for_matched_set_fe"] == 1)).sum())
+    qa_metrics["comparison_rows_usable_for_matched_set_fe"] = int(((analysis_set_norm == "comparison") & (out_df["usable_for_matched_set_fe"] == 1)).sum())
+
+    controls_per_wontfix = []
+    wontfix_rows = out_df[analysis_set_norm == "wontfix"].copy()
+    comp_count_map = set_summary.set_index("matched_set_id")["matched_set_comparison_rows_in_analysis"]
+    for _, row in wontfix_rows.iterrows():
+        matched_set_id = row.get("matched_set_id")
+        if has_real_value(matched_set_id):
+            controls_per_wontfix.append(int(comp_count_map.get(matched_set_id, 0)))
+        else:
+            controls_per_wontfix.append(0)
+    controls_dist = pd.Series(controls_per_wontfix, dtype="int64").value_counts().sort_index().to_dict() if controls_per_wontfix else {}
+    qa_metrics["controls_per_wontfix_distribution_json"] = json.dumps({str(k): int(v) for k, v in controls_dist.items()}, sort_keys=True)
+
+    return out_df.copy()
+
+
+def write_dataset_building_qa_artifacts(full_df, qa_output_dir, logger):
+    qa_output_dir = Path(qa_output_dir)
+    qa_output_dir.mkdir(parents=True, exist_ok=True)
+    written = {}
+    if full_df.empty:
+        return written
+
+    # Attachment status by analysis set.
+    if "analysis_set" in full_df.columns and "has_matched_set" in full_df.columns:
+        attachment_df = (
+            full_df.assign(
+                matched_set_status=full_df["has_matched_set"].map({1: "has_matched_set", 0: "missing_matched_set"}).fillna("missing_matched_set")
+            )
+            .groupby(["analysis_set", "matched_set_status"], dropna=False)
+            .size()
+            .reset_index(name="rows")
+            .sort_values(["analysis_set", "matched_set_status"])
+        )
+        attachment_csv = qa_output_dir / "matched_set_attachment_by_analysis_set.csv"
+        attachment_df.to_csv(attachment_csv, index=False)
+        written["matched_set_attachment_by_analysis_set_csv"] = str(attachment_csv)
+
+        if plt is not None and not attachment_df.empty:
+            pivot = attachment_df.pivot(index="analysis_set", columns="matched_set_status", values="rows").fillna(0)
+            ax = pivot.plot(kind="bar")
+            ax.set_title("Matched-set ID attachment by analysis set")
+            ax.set_xlabel("Analysis set")
+            ax.set_ylabel("Rows")
+            ax.legend(title="Matched-set status")
+            fig = ax.get_figure()
+            fig.tight_layout()
+            png_path = qa_output_dir / "matched_set_attachment_by_analysis_set.png"
+            fig.savefig(png_path, dpi=180, bbox_inches="tight")
+            plt.close(fig)
+            written["matched_set_attachment_by_analysis_set_png"] = str(png_path)
+
+    # Controls-per-WONTFIX distribution in the final analysis population.
+    required_cols = {"analysis_set", "matched_set_id"}
+    if required_cols.issubset(set(full_df.columns)):
+        analysis_set_norm = full_df["analysis_set"].fillna("missing").astype(str).str.lower()
+        matched_rows = full_df[full_df["matched_set_id"].notna()].copy()
+        if not matched_rows.empty:
+            comp_counts = (
+                matched_rows[analysis_set_norm.loc[matched_rows.index].eq("comparison")]
+                .groupby("matched_set_id")
+                .size()
+            )
+        else:
+            comp_counts = pd.Series(dtype="int64")
+        wontfix_rows = full_df[analysis_set_norm.eq("wontfix")].copy()
+        if not wontfix_rows.empty:
+            controls = []
+            for _, row in wontfix_rows.iterrows():
+                matched_set_id = row.get("matched_set_id")
+                controls.append(int(comp_counts.get(matched_set_id, 0)) if has_real_value(matched_set_id) else 0)
+            dist_df = (
+                pd.Series(controls, name="controls_per_wontfix")
+                .value_counts()
+                .sort_index()
+                .rename_axis("controls_per_wontfix")
+                .reset_index(name="wontfix_issues")
+            )
+        else:
+            dist_df = pd.DataFrame(columns=["controls_per_wontfix", "wontfix_issues"])
+
+        dist_csv = qa_output_dir / "controls_per_wontfix_distribution.csv"
+        dist_df.to_csv(dist_csv, index=False)
+        written["controls_per_wontfix_distribution_csv"] = str(dist_csv)
+
+        if plt is not None and not dist_df.empty:
+            fig, ax = plt.subplots(figsize=(7, 4.5))
+            ax.bar(dist_df["controls_per_wontfix"].astype(str), dist_df["wontfix_issues"])
+            ax.set_title("Controls per WONTFIX issue")
+            ax.set_xlabel("Number of matched comparison controls")
+            ax.set_ylabel("WONTFIX issues")
+            fig.tight_layout()
+            png_path = qa_output_dir / "controls_per_wontfix_distribution.png"
+            fig.savefig(png_path, dpi=180, bbox_inches="tight")
+            plt.close(fig)
+            written["controls_per_wontfix_distribution_png"] = str(png_path)
+
+    if written:
+        logger.info("Wrote dataset-building QA artifacts | output_dir=%s | files=%s", qa_output_dir, len(written))
+    return written
+
 def load_input_frames(config, logger):
     merge_mode = getattr(config.storage, "processed_merge_mode", "single_parquet")
 
@@ -871,6 +1234,7 @@ def load_input_frames(config, logger):
     sentiment_df = normalize_feature_frame(load_table(sentiment_path, merge_mode=merge_mode), "sentiment")
     participation_df = normalize_feature_frame(load_table(participation_path, merge_mode=merge_mode), "participation")
     ownership_df = normalize_feature_frame(load_table(ownership_path, merge_mode=merge_mode), "ownership")
+    matched_lookup_df, matched_lookup_path = load_matched_set_lookup(config, logger)
 
     sentiment_df, sentiment_dupes = dedupe_feature_frame(sentiment_df, "sentiment", logger)
     participation_df, participation_dupes = dedupe_feature_frame(participation_df, "participation", logger)
@@ -883,11 +1247,13 @@ def load_input_frames(config, logger):
         "sentiment_rows_seen": int(len(sentiment_df)),
         "participation_rows_seen": int(len(participation_df)),
         "ownership_rows_seen": int(len(ownership_df)),
+        "matched_set_lookup_path": str(matched_lookup_path),
+        "matched_set_lookup_rows_seen": int(len(matched_lookup_df)),
         "duplicate_sentiment_keys_detected": int(sentiment_dupes),
         "duplicate_participation_keys_detected": int(participation_dupes),
         "duplicate_ownership_keys_detected": int(ownership_dupes),
     }
-    return population_df, issues_resolved_df, repositories_df, sentiment_df, participation_df, ownership_df, qa_metrics
+    return population_df, issues_resolved_df, repositories_df, sentiment_df, participation_df, ownership_df, matched_lookup_df, matched_lookup_path, qa_metrics
 
 def build_full_analysis_dataset(config, logger):
     (
@@ -897,6 +1263,8 @@ def build_full_analysis_dataset(config, logger):
         sentiment_df,
         participation_df,
         ownership_df,
+        matched_lookup_df,
+        matched_lookup_path,
         qa_metrics,
     ) = load_input_frames(config, logger)
 
@@ -905,6 +1273,8 @@ def build_full_analysis_dataset(config, logger):
 
     population_df = population_df.drop_duplicates(subset=["repo_full_name", "issue_id", "issue_number", "analysis_set"]).reset_index(drop=True)
     full_df = population_df.copy()
+
+    full_df = attach_matched_set_ids(full_df, matched_lookup_df, matched_lookup_path, qa_metrics)
 
     if not issues_resolved_df.empty:
         full_df = merge_with_issue_fallback(full_df, issues_resolved_df, "issues_resolved")
@@ -986,6 +1356,12 @@ def build_full_analysis_dataset(config, logger):
     qa_metrics["rows_usable_for_rq3"] = int(
         full_df.get("usable_for_rq3", pd.Series(0, index=full_df.index)).sum()
     )
+    qa_metrics["rows_with_matched_set_id_final"] = int(
+        full_df.get("has_matched_set", pd.Series(0, index=full_df.index)).sum()
+    )
+    qa_metrics["rows_usable_for_matched_set_fe_final"] = int(
+        full_df.get("usable_for_matched_set_fe", pd.Series(0, index=full_df.index)).sum()
+    )
 
     return full_df, qa_metrics
 
@@ -1029,6 +1405,11 @@ def main(config_path=None):
     write_processed_table(rq2_df, stage_paths["rq2_output_path"], config)
     write_processed_table(rq3_issue_base_df, stage_paths["rq3_issue_base_output_path"], config)
 
+    qa_artifact_paths = write_dataset_building_qa_artifacts(full_df, stage_paths["qa_output_dir"], logger)
+    qa_metrics["dataset_building_qa_output_dir"] = str(stage_paths["qa_output_dir"])
+    for artifact_key, artifact_path in qa_artifact_paths.items():
+        qa_metrics[artifact_key] = artifact_path
+
     qa_rows = build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_issue_base_df, qa_metrics)
     write_summary_csv(qa_rows, stage_paths["qa_summary_path"])
 
@@ -1049,6 +1430,7 @@ def main(config_path=None):
                 "rq2_output_path": str(stage_paths["rq2_output_path"]),
                 "rq3_issue_base_output_path": str(stage_paths["rq3_issue_base_output_path"]),
                 "qa_summary_path": str(stage_paths["qa_summary_path"]),
+                "qa_output_dir": str(stage_paths["qa_output_dir"]),
             },
         },
     )
