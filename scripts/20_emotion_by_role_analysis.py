@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import pandas as pd
 
-# Setup paths to match your project structure
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -18,14 +18,12 @@ def load_and_combine_issues():
     wontfix_df = pd.read_parquet(WONTFIX_ISSUES_PATH)
     comp_df = pd.read_parquet(COMPARISON_ISSUES_PATH)
     
-    # Ensure analysis_set is clearly marked
+
     wontfix_df["analysis_set"] = "wontfix"
     comp_df["analysis_set"] = "comparison"
     
     combined = pd.concat([wontfix_df, comp_df], ignore_index=True)
     
-    # We only need the keys to map an issue to its original author
-    # Note: Using your derived __repo and __issue_number if present, otherwise fallback
     repo_col = "__repo" if "__repo" in combined.columns else "repo_full_name"
     num_col = "__issue_number" if "__issue_number" in combined.columns else "issue_number"
     author_col = "author_login" # Standard GitHub API field for issue author
@@ -43,10 +41,8 @@ def main():
     emotions_df = pd.read_parquet(EMOTION_FEATURES_PATH)
     issues_df = load_and_combine_issues()
     
-    # Filter only for individual comments (we don't want the issue body or the summary rows here)
     comments_only = emotions_df[emotions_df["text_source"] == "issue_comment"].copy()
     
-    # Merge to attach the original issue author to every comment
     merged_df = comments_only.merge(
         issues_df, 
         on=["repo_full_name", "issue_number"], 
@@ -55,30 +51,24 @@ def main():
     
     print(f"Successfully merged {len(merged_df)} comment emotion rows with issue author data.")
     
-    # Create the role flag
     merged_df["is_issue_author"] = merged_df["author_login"] == merged_df["issue_author_login"]
     merged_df["commenter_role"] = merged_df["is_issue_author"].map({True: "Issue Author", False: "Non-Author"})
     
-    # Filter out neutral to focus on the complex emotions (like the reviewer asked)
     non_neutral = merged_df[merged_df["dominant_emotion"] != "neutral"].copy()
     
     print("Calculating role-based distributions...")
-    # Group by Analysis Set, Role, and Emotion
     breakdown = non_neutral.groupby(
         ["analysis_set", "commenter_role", "dominant_emotion"]
     ).size().reset_index(name="comment_count")
     
-    # Calculate the percentage share within each (Analysis Set + Role) group
     group_totals = breakdown.groupby(["analysis_set", "commenter_role"])["comment_count"].transform('sum')
     breakdown["share_within_role"] = (breakdown["comment_count"] / group_totals).round(4)
     
-    # Sort for readability
     breakdown = breakdown.sort_values(
         by=["analysis_set", "commenter_role", "comment_count"], 
         ascending=[True, True, False]
     )
     
-    # Save to outputs
     OUTPUT_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
     breakdown.to_csv(OUTPUT_CSV_PATH, index=False)
     
