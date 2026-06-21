@@ -289,6 +289,44 @@ def find_first_present_column(df, candidates):
             return lower_map[candidate.lower()]
     return None
 
+def drop_wontfix_comparison_overlap(df, dataset_name="analysis_dataset"):
+    """Remove rows where the same issue appears as both WONTFIX and comparison.
+
+    This should never happen after a clean matched lookup. If it does happen,
+    WONTFIX wins and the comparison copy is dropped.
+    """
+    if df is None or df.empty:
+        return df
+
+    required = {"repo_full_name", "issue_id", "analysis_set"}
+    if not required.issubset(set(df.columns)):
+        return df
+
+    out = df.copy()
+    out["__analysis_set_norm"] = out["analysis_set"].astype(str).str.lower().str.strip()
+    out["__issue_key_for_overlap"] = (
+        out["repo_full_name"].astype(str) + "::" + out["issue_id"].astype(str)
+    )
+
+    wontfix_keys = set(
+        out.loc[out["__analysis_set_norm"].eq("wontfix"), "__issue_key_for_overlap"]
+    )
+
+    comparison_overlap_mask = (
+        out["__analysis_set_norm"].eq("comparison")
+        & out["__issue_key_for_overlap"].isin(wontfix_keys)
+    )
+
+    dropped = int(comparison_overlap_mask.sum())
+    if dropped:
+        print(
+            f"[WARN] {dataset_name}: dropping {dropped} comparison rows whose issue_id also appears as WONTFIX"
+        )
+
+    out = out.loc[~comparison_overlap_mask].copy()
+    out = out.drop(columns=["__analysis_set_norm", "__issue_key_for_overlap"], errors="ignore")
+    return out.reset_index(drop=True)
+
 def normalize_issue_set_columns(df, analysis_set_name):
     if df.empty:
         return pd.DataFrame(columns=["repo_full_name", "issue_id", "issue_number", "analysis_set"])
@@ -1398,19 +1436,23 @@ def main(config_path=None):
         )
         return
 
-    rq1_df, rq2_df, rq3_issue_base_df = build_rq_views(full_df, config)
+    rq1_df, rq2_df, rq3_df = build_rq_views(full_df, config)
+
+    rq1_df = drop_wontfix_comparison_overlap(rq1_df, dataset_name="rq1")
+    rq2_df = drop_wontfix_comparison_overlap(rq2_df, dataset_name="rq2")
+    rq3_df = drop_wontfix_comparison_overlap(rq3_df, dataset_name="rq3")
 
     write_processed_table(full_df, stage_paths["full_output_path"], config)
     write_processed_table(rq1_df, stage_paths["rq1_output_path"], config)
     write_processed_table(rq2_df, stage_paths["rq2_output_path"], config)
-    write_processed_table(rq3_issue_base_df, stage_paths["rq3_issue_base_output_path"], config)
+    write_processed_table(rq3_df, stage_paths["rq3_issue_base_output_path"], config)
 
     qa_artifact_paths = write_dataset_building_qa_artifacts(full_df, stage_paths["qa_output_dir"], logger)
     qa_metrics["dataset_building_qa_output_dir"] = str(stage_paths["qa_output_dir"])
     for artifact_key, artifact_path in qa_artifact_paths.items():
         qa_metrics[artifact_key] = artifact_path
 
-    qa_rows = build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_issue_base_df, qa_metrics)
+    qa_rows = build_qa_summary_rows(full_df, rq1_df, rq2_df, rq3_df, qa_metrics)
     write_summary_csv(qa_rows, stage_paths["qa_summary_path"])
 
     write_run_manifest(
@@ -1423,7 +1465,7 @@ def main(config_path=None):
             "rows_written_full": int(len(full_df)),
             "rows_written_rq1": int(len(rq1_df)),
             "rows_written_rq2": int(len(rq2_df)),
-            "rows_written_rq3_issue_level_base": int(len(rq3_issue_base_df)),
+            "rows_written_rq3_issue_level_base": int(len(rq3_df)),
             "output_paths": {
                 "full_output_path": str(stage_paths["full_output_path"]),
                 "rq1_output_path": str(stage_paths["rq1_output_path"]),
@@ -1440,7 +1482,7 @@ def main(config_path=None):
         len(full_df),
         len(rq1_df),
         len(rq2_df),
-        len(rq3_issue_base_df),
+        len(rq3_df),
     )
 
 

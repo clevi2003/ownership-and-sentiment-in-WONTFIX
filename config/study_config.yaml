@@ -385,7 +385,7 @@ identity_resolution:
   pr_commit_bridge_min_distinct_prs: 1
   pr_commit_bridge_require_bijective: true
 
-  attachment_identity_mode: "strict" # strict or fuzzy
+  attachment_identity_mode: "fuzzy" # strict or fuzzy
 
   normalized_name_rules:
     lowercase: true

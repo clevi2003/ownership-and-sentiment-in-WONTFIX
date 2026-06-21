@@ -1,0 +1,27 @@
+{
+  "rq1_dataset": "data/final/analysis_dataset_rq1.parquet",
+  "comment_features": "data/features/sentiment/comment_sentiment_features.parquet",
+  "output_dir": "sentiment_analysis",
+  "n_issue_rows": 8114,
+  "n_comment_rows": 22180,
+  "figure_files": [
+    "sentiment_analysis/figures/01_issue_counts_by_group.png",
+    "sentiment_analysis/figures/02_mean_comment_sentiment_distribution.png",
+    "sentiment_analysis/figures/02b_mean_comment_sentiment_signed_distribution.png",
+    "sentiment_analysis/figures/03_sentiment_volatility_distribution.png",
+    "sentiment_analysis/figures/04_min_comment_sentiment_distribution.png",
+    "sentiment_analysis/figures/04b_min_comment_sentiment_signed_distribution.png",
+    "sentiment_analysis/figures/04c_max_comment_sentiment_distribution.png",
+    "sentiment_analysis/figures/04d_max_comment_sentiment_signed_distribution.png",
+    "sentiment_analysis/figures/04e_comment_sentiment_range_distribution.png",
+    "sentiment_analysis/figures/04f_comment_sentiment_range_nonzero_distribution.png",
+    "sentiment_analysis/figures/05_early_vs_late_sentiment.png",
+    "sentiment_analysis/figures/06_mean_sentiment_vs_comment_count.png",
+    "sentiment_analysis/figures/07_volatility_vs_unique_commenters.png",
+    "sentiment_analysis/figures/08_repo_forest_effects_panel.png",
+    "sentiment_analysis/figures/09_feature_correlation_heatmap.png",
+    "sentiment_analysis/figures/10_comment_trajectory.png"
+  ],
+  "report_path": "sentiment_analysis/sentiment_analysis_report.md",
+  "tables_dir": "sentiment_analysis/tables"
+}
