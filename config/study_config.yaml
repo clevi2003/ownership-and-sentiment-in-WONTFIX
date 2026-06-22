@@ -331,8 +331,10 @@ ownership_features:
     - "pr_commit_chain"
   allow_fallback_confidence_levels:
     - "high"
+    - "medium"
   high_confidence_issue_file_levels:
     - "high"
+    - "medium"
   exclude_bots_from_ownership: true
   min_linked_files_for_ok: 1
   min_resolved_commit_rows_for_ok: 1
@@ -344,6 +346,7 @@ ownership_features:
     - "file_fallback"
   conservative_pre_issue_allowed_confidence_levels:
     - "high"
+    - "medium"
   conservative_pre_issue_min_distinct_commits: 2
   conservative_pre_issue_min_distinct_files: 1
   conservative_pre_issue_min_distinct_days: 1
@@ -385,7 +388,7 @@ identity_resolution:
   pr_commit_bridge_min_distinct_prs: 1
   pr_commit_bridge_require_bijective: true
 
-  attachment_identity_mode: "fuzzy" # strict or fuzzy
+  attachment_identity_mode: "strict" # strict or fuzzy
 
   normalized_name_rules:
     lowercase: true
@@ -398,7 +401,7 @@ identity_resolution:
 
 fuzzy_identity_resolution:
   enabled: true
-  max_repos_per_run: 5
+  max_repos_per_run: 50
   resume_mode: "fresh"
   write_batch_size: 5000
   require_same_repo: true

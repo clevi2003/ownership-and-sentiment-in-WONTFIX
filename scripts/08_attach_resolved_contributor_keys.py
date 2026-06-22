@@ -547,16 +547,33 @@ def process_repo(config, logger, repo_row):
         + commit_author_stats["ambiguous_keys_dropped"]
     )
     if get_attachment_mode(config) == "fuzzy":
-        resolved_frames = [issues_resolved_df, comments_resolved_df, prs_resolved_df, commits_resolved_df]
-        combined_resolved = pd.concat(resolved_frames, ignore_index=True) if resolved_frames else pd.DataFrame()
+        resolved_frames = [
+            issues_resolved_df,
+            comments_resolved_df,
+            prs_resolved_df,
+            commits_resolved_df,
+        ]
 
-        if not combined_resolved.empty and "fuzzy_resolution_method" in combined_resolved.columns:
-            result["rows_with_fuzzy_cluster_merge_method"] = int(
-                (combined_resolved["fuzzy_resolution_method"] == "fuzzy_cluster_merge").sum()
-            )
-            result["rows_with_strict_only_fuzzy_method"] = int(
-                (combined_resolved["fuzzy_resolution_method"] == "strict_only").sum()
-            )
+        fuzzy_cluster_merge_count = 0
+        strict_only_count = 0
+
+        for frame in resolved_frames:
+            if frame is None or frame.empty:
+                continue
+
+            # Defensive: duplicate columns can happen after fuzzy provenance merges.
+            # For these summary counts, we only need the first fuzzy_resolution_method column.
+            frame = frame.loc[:, ~frame.columns.duplicated()].copy()
+
+            if "fuzzy_resolution_method" not in frame.columns:
+                continue
+
+            method = frame["fuzzy_resolution_method"].astype(str)
+            fuzzy_cluster_merge_count += int(method.eq("fuzzy_cluster_merge").sum())
+            strict_only_count += int(method.eq("strict_only").sum())
+
+        result["rows_with_fuzzy_cluster_merge_method"] = fuzzy_cluster_merge_count
+        result["rows_with_strict_only_fuzzy_method"] = strict_only_count
 
     log_attachment_warning(logger, repo_full_name, "issues.issue_author", result["issue_rows_with_author"],
                            result["issue_author_keys_attached"])
@@ -651,6 +668,12 @@ def merge_resolved_entity_batches(config, logger):
         logger.info("Wrote commits_resolved using %s mode to %s", mode_used, output_paths["commits"])
     else:
         logger.warning("No commits_resolved parts found to merge.")
+
+def dedupe_columns(df):
+    """Drop duplicate-named columns, keeping the first occurrence."""
+    if df is None or df.empty:
+        return df
+    return df.loc[:, ~df.columns.duplicated()].copy()
 
 def write_summary_csv(summary_rows, output_path):
     output_path = Path(output_path)

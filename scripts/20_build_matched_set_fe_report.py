@@ -3,8 +3,8 @@
 Build matched-set fixed-effect reporting tables for the WONTFIX revision.
 
 Primary model:
-    outcome ~ is_wontfix + C(matched_set_id)
-    standard errors clustered by matched_set_id
+    outcome ~ is_wontfix + C(matched_set_fe_id)
+    standard errors clustered by matched_set_fe_id
 
 Robustness model:
     outcome ~ is_wontfix + C(repo_full_name)
@@ -15,6 +15,7 @@ Design notes:
 - Because matched sets are same-repository, matched-set FE absorbs repo-level differences.
 - Repo FE models are retained only as a coarser robustness check corresponding to the original analysis tier.
 - Valid matched sets are recomputed separately for every outcome after missing outcomes and denominator filters are applied.
+- matched_set_fe_id is repo_full_name + matched_set_id so same numeric/string IDs in different repos are never pooled.
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ try:
 except Exception:  # pragma: no cover
     multipletests = None
 
-SCRIPT_VERSION = "matched_set_fe_report_v2026_06_17_plot_fix"
+SCRIPT_VERSION = "matched_set_fe_report_v2026_06_17_design_validation_fix"
 
 DEFAULT_RQ1_DATASET = "data/final/analysis_dataset_rq1.parquet"
 DEFAULT_RQ2_DATASET = "data/final/analysis_dataset_rq2.parquet"
@@ -331,6 +332,210 @@ def to_numeric(series: pd.Series | None) -> pd.Series:
     return pd.to_numeric(series, errors="coerce")
 
 
+def maybe_numeric_col(df: pd.DataFrame, column_name: str) -> pd.Series | None:
+    if column_name not in df.columns:
+        return None
+    return to_numeric(df[column_name])
+
+
+def safe_log1p(series: pd.Series) -> pd.Series:
+    values = to_numeric(series)
+    values = values.where(values >= 0)
+    return np.log1p(values)
+
+
+def derive_participation_columns(out: pd.DataFrame) -> pd.DataFrame:
+    """Create participation columns used by this report when stage 13 only has raw counts.
+
+    This is deliberately conservative: existing columns are preserved, and derived
+    columns are only filled when their source columns are present. The goal is to
+    avoid treating simple transform columns as missing outcomes.
+    """
+    if out is None or out.empty:
+        return out
+    out = out.copy()
+
+    if "log1p_comment_count" not in out.columns and "comment_count" in out.columns:
+        out["log1p_comment_count"] = safe_log1p(out["comment_count"])
+
+    if "log1p_unique_commenter_count" not in out.columns and "unique_commenter_count" in out.columns:
+        out["log1p_unique_commenter_count"] = safe_log1p(out["unique_commenter_count"])
+
+    if "log1p_num_distinct_non_author_commenters" not in out.columns and "num_distinct_non_author_commenters" in out.columns:
+        out["log1p_num_distinct_non_author_commenters"] = safe_log1p(out["num_distinct_non_author_commenters"])
+
+    if "has_any_non_author_comment" not in out.columns and "num_distinct_non_author_commenters" in out.columns:
+        out["has_any_non_author_comment"] = (to_numeric(out["num_distinct_non_author_commenters"]).fillna(0) > 0).astype(int)
+
+    if "multi_party_discussion_flag" not in out.columns and "unique_commenter_count" in out.columns:
+        out["multi_party_discussion_flag"] = (to_numeric(out["unique_commenter_count"]).fillna(0) > 1).astype(int)
+
+    return out
+
+
+def add_matched_set_fe_id(out: pd.DataFrame) -> pd.DataFrame:
+    """Create a globally unique FE/cluster ID for same-repo matched sets.
+
+    The comparison-set design is same-repository. If raw matched_set_id values are
+    only unique within repo, using C(matched_set_id) alone can accidentally pool
+    different repositories. The FE model therefore uses matched_set_fe_id, defined
+    as repo_full_name + '||' + matched_set_id.
+    """
+    if out is None or out.empty:
+        return out
+    out = out.copy()
+    if "matched_set_id" not in out.columns:
+        out["matched_set_id"] = pd.NA
+    out["matched_set_id"] = out["matched_set_id"].apply(clean_text)
+    mask = out["matched_set_id"].notna() & out["repo_full_name"].notna()
+    out["matched_set_fe_id"] = pd.NA
+    out.loc[mask, "matched_set_fe_id"] = (
+        out.loc[mask, "repo_full_name"].astype(str) + "||" + out.loc[mask, "matched_set_id"].astype(str)
+    )
+    out["has_matched_set"] = out["matched_set_fe_id"].notna().astype(int)
+    return out
+
+
+def select_design_population(datasets: dict[str, pd.DataFrame]) -> tuple[str | None, pd.DataFrame]:
+    """Pick the fullest issue-level analysis dataset for design validation.
+
+    RQ1/RQ2/RQ3 tables all carry the same matched-set IDs but may differ in
+    outcome availability. For matching-design QA, use the largest non-empty table
+    and deduplicate to one issue row per repo/issue/matched set.
+    """
+    candidates: list[tuple[str, int, pd.DataFrame]] = []
+    for name, df in datasets.items():
+        if df is None or df.empty:
+            continue
+        needed = {"repo_full_name", "analysis_set", "matched_set_id", "matched_set_fe_id"}
+        if not needed.issubset(set(df.columns)):
+            continue
+        candidates.append((name, len(df), df))
+    if not candidates:
+        return None, pd.DataFrame()
+    name, _, df = sorted(candidates, key=lambda item: item[1], reverse=True)[0]
+    cols = [
+        c for c in [
+            "repo_full_name", "matched_set_id", "matched_set_fe_id", "analysis_set",
+            "issue_id", "issue_number", "is_wontfix", "is_comparison",
+        ] if c in df.columns
+    ]
+    pop = df[cols].copy()
+    dedupe_cols = [c for c in ["repo_full_name", "issue_id", "issue_number", "analysis_set", "matched_set_fe_id"] if c in pop.columns]
+    if dedupe_cols:
+        pop = pop.drop_duplicates(subset=dedupe_cols).reset_index(drop=True)
+    return name, pop
+
+
+def build_matched_set_design_validation(
+    datasets: dict[str, pd.DataFrame],
+    max_controls_per_wontfix: int = 3,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Validate matched-set structure from the analysis datasets themselves.
+
+    This avoids stale/mixed QA values and, critically, groups by repo-aware
+    matched_set_fe_id rather than raw matched_set_id.
+    """
+    source_dataset, pop = select_design_population(datasets)
+    if pop.empty:
+        summary = pd.DataFrame([
+            {"metric": "design_validation_source_dataset", "value": source_dataset, "note": "No non-empty analysis dataset available."},
+            {"metric": "design_validation_status", "value": "no_population", "note": "Could not validate matched-set design."},
+        ])
+        return pd.DataFrame(), summary
+
+    matched = pop[pop["matched_set_fe_id"].notna()].copy()
+    if matched.empty:
+        unmatched_w = int((pop["analysis_set"] == "wontfix").sum()) if "analysis_set" in pop.columns else 0
+        summary = pd.DataFrame([
+            {"metric": "design_validation_source_dataset", "value": source_dataset, "note": "Dataset used for matched-set design validation."},
+            {"metric": "design_validation_status", "value": "no_matched_sets", "note": "No rows with matched_set_fe_id."},
+            {"metric": "derived_unmatched_wontfix_count", "value": unmatched_w, "note": "WONTFIX rows without a matched-set ID."},
+        ])
+        return pd.DataFrame(), summary
+
+    by_set = (
+        matched.groupby(["repo_full_name", "matched_set_id", "matched_set_fe_id"], dropna=False)
+        .agg(
+            total_rows=("analysis_set", "size"),
+            wontfix_rows=("analysis_set", lambda s: int((s == "wontfix").sum())),
+            comparison_rows=("analysis_set", lambda s: int((s == "comparison").sum())),
+            distinct_issue_ids=("issue_id", lambda s: int(pd.Series(s).dropna().astype(str).nunique()) if "issue_id" in matched.columns else 0),
+            distinct_issue_numbers=("issue_number", lambda s: int(pd.Series(s).dropna().nunique()) if "issue_number" in matched.columns else 0),
+        )
+        .reset_index()
+    )
+    by_set["has_exactly_one_wontfix"] = (by_set["wontfix_rows"] == 1).astype(int)
+    by_set["has_at_least_one_comparison"] = (by_set["comparison_rows"] >= 1).astype(int)
+    by_set["has_too_many_controls"] = (by_set["comparison_rows"] > int(max_controls_per_wontfix)).astype(int)
+    by_set["usable_for_matched_set_fe_design"] = (
+        (by_set["wontfix_rows"] >= 1) & (by_set["comparison_rows"] >= 1)
+    ).astype(int)
+
+    # Detect raw matched_set_id collisions across repositories. These are okay
+    # because modeling uses matched_set_fe_id, but they explain why raw grouping
+    # can show impossible 4/5-control sets.
+    cross_repo = (
+        matched.groupby("matched_set_id", dropna=True)["repo_full_name"]
+        .nunique()
+        .reset_index(name="repo_count")
+    )
+    raw_ids_cross_repo = int((cross_repo["repo_count"] > 1).sum())
+
+    unmatched_wontfix_count = int(((pop["analysis_set"] == "wontfix") & pop["matched_set_fe_id"].isna()).sum())
+    total_wontfix = int((pop["analysis_set"] == "wontfix").sum())
+    total_comparison = int((pop["analysis_set"] == "comparison").sum())
+    valid_sets = by_set[(by_set["wontfix_rows"] >= 1) & (by_set["comparison_rows"] >= 1)].copy()
+    matched_rows_usable = int(valid_sets["total_rows"].sum()) if not valid_sets.empty else 0
+    max_observed_controls = int(by_set["comparison_rows"].max()) if not by_set.empty else 0
+    invalid_wontfix_sets = int((by_set["wontfix_rows"] != 1).sum())
+    sets_without_comparison = int((by_set["comparison_rows"] < 1).sum())
+    sets_too_many_controls = int((by_set["comparison_rows"] > int(max_controls_per_wontfix)).sum())
+
+    # Distribution is issue-level: one zero bucket for unmatched WONTFIX rows,
+    # plus comparison counts for matched sets with WONTFIX rows.
+    dist_values: list[int] = [0] * unmatched_wontfix_count
+    for _, row in by_set[by_set["wontfix_rows"] >= 1].iterrows():
+        # If a pathological set has >1 WONTFIX rows, count it once per WONTFIX
+        # so the distribution still sums to the number of WONTFIX issues.
+        repeats = max(int(row["wontfix_rows"]), 1)
+        dist_values.extend([int(row["comparison_rows"])] * repeats)
+    dist_series = pd.Series(dist_values, dtype="int64") if dist_values else pd.Series(dtype="int64")
+    distribution = {str(int(k)): int(v) for k, v in dist_series.value_counts().sort_index().items()}
+
+    status = "ok"
+    warnings_list = []
+    if sets_too_many_controls:
+        warnings_list.append("sets_with_more_controls_than_configured_max")
+    if invalid_wontfix_sets:
+        warnings_list.append("sets_without_exactly_one_wontfix")
+    if sets_without_comparison:
+        warnings_list.append("sets_without_comparison")
+    if raw_ids_cross_repo:
+        warnings_list.append("raw_matched_set_id_reused_across_repos_model_uses_repo_aware_fe_id")
+    if warnings_list:
+        status = "warning"
+
+    summary_rows = [
+        {"metric": "design_validation_source_dataset", "value": source_dataset, "note": "Largest non-empty analysis dataset used for design validation."},
+        {"metric": "design_validation_status", "value": status, "note": "; ".join(warnings_list) if warnings_list else "Matched-set design validation passed."},
+        {"metric": "derived_total_wontfix_issues", "value": total_wontfix, "note": "WONTFIX rows in the design-validation population."},
+        {"metric": "derived_total_comparison_issues", "value": total_comparison, "note": "Comparison rows in the design-validation population."},
+        {"metric": "derived_unmatched_wontfix_count", "value": unmatched_wontfix_count, "note": "WONTFIX rows without matched_set_fe_id."},
+        {"metric": "derived_controls_per_wontfix_distribution_json", "value": json.dumps(distribution, sort_keys=True), "note": "Derived from repo-aware matched_set_fe_id; includes unmatched WONTFIX as 0."},
+        {"metric": "derived_valid_matched_sets_for_fe", "value": int(len(valid_sets)), "note": "Sets with at least one WONTFIX and at least one comparison row."},
+        {"metric": "derived_rows_usable_for_matched_set_fe", "value": matched_rows_usable, "note": "Rows inside valid matched sets in design-validation population."},
+        {"metric": "derived_max_observed_controls_per_wontfix", "value": max_observed_controls, "note": "Maximum comparison rows per repo-aware matched set."},
+        {"metric": "design_sets_with_more_than_max_controls", "value": sets_too_many_controls, "note": f"Expected max controls per WONTFIX is {max_controls_per_wontfix}."},
+        {"metric": "design_sets_without_exactly_one_wontfix", "value": invalid_wontfix_sets, "note": "Should be 0 for clean 1:N matched sets."},
+        {"metric": "design_sets_without_comparison", "value": sets_without_comparison, "note": "Should be 0 among matched sets used for FE."},
+        {"metric": "raw_matched_set_ids_reused_across_repos", "value": raw_ids_cross_repo, "note": "Not a modeling problem because matched_set_fe_id includes repo_full_name."},
+        {"metric": "matched_set_fe_id_definition", "value": "repo_full_name || matched_set_id", "note": "Used in primary FE formula and clustered SE groups."},
+    ]
+    return by_set.sort_values(["repo_full_name", "matched_set_id"]).reset_index(drop=True), pd.DataFrame(summary_rows)
+
+
+
 # -----------------------------------------------------------------------------
 # Dataset normalization and design summaries
 # -----------------------------------------------------------------------------
@@ -380,11 +585,11 @@ def normalize_analysis_dataset(df: pd.DataFrame, dataset_name: str) -> pd.DataFr
         out["matched_set_id"] = out[matched_col]
     elif "matched_set_id" not in out.columns:
         out["matched_set_id"] = pd.NA
-    out["matched_set_id"] = out["matched_set_id"].apply(clean_text)
-    out["has_matched_set"] = out["matched_set_id"].notna().astype(int)
 
+    out = add_matched_set_fe_id(out)
+    if dataset_name == "rq3":
+        out = derive_participation_columns(out)
     return out
-
 
 def get_metric_value(qa_df: pd.DataFrame, metric_name: str, default: Any = None) -> Any:
     if qa_df is None or qa_df.empty:
@@ -417,73 +622,107 @@ def build_dataset_readiness(datasets: dict[str, pd.DataFrame]) -> pd.DataFrame:
                 "comparison_rows": 0,
                 "wontfix_rows_with_matched_set": 0,
                 "comparison_rows_with_matched_set": 0,
+                "raw_matched_set_ids_reused_across_repos": 0,
             })
             continue
         usable_col = "usable_for_matched_set_fe" if "usable_for_matched_set_fe" in df.columns else None
+        fe_col = "matched_set_fe_id" if "matched_set_fe_id" in df.columns else "matched_set_id"
+        raw_reused = 0
+        if "matched_set_id" in df.columns and "repo_full_name" in df.columns:
+            tmp = df[df["matched_set_id"].notna()].copy()
+            if not tmp.empty:
+                raw_counts = tmp.groupby("matched_set_id", dropna=True)["repo_full_name"].nunique()
+                raw_reused = int((raw_counts > 1).sum())
         rows.append({
             "dataset": name,
             "rows": int(len(df)),
             "repos": int(df["repo_full_name"].nunique()) if "repo_full_name" in df.columns else 0,
-            "matched_sets": int(df["matched_set_id"].dropna().nunique()) if "matched_set_id" in df.columns else 0,
-            "rows_with_matched_set": int(df["matched_set_id"].notna().sum()) if "matched_set_id" in df.columns else 0,
+            "matched_sets": int(df[fe_col].dropna().nunique()) if fe_col in df.columns else 0,
+            "raw_matched_set_ids": int(df["matched_set_id"].dropna().nunique()) if "matched_set_id" in df.columns else 0,
+            "raw_matched_set_ids_reused_across_repos": raw_reused,
+            "rows_with_matched_set": int(df[fe_col].notna().sum()) if fe_col in df.columns else 0,
             "global_usable_for_matched_set_fe_rows": int(to_numeric(df[usable_col]).fillna(0).sum()) if usable_col else 0,
             "wontfix_rows": int((df["analysis_set"] == "wontfix").sum()) if "analysis_set" in df.columns else 0,
             "comparison_rows": int((df["analysis_set"] == "comparison").sum()) if "analysis_set" in df.columns else 0,
-            "wontfix_rows_with_matched_set": int(((df["analysis_set"] == "wontfix") & df["matched_set_id"].notna()).sum()) if "analysis_set" in df.columns and "matched_set_id" in df.columns else 0,
-            "comparison_rows_with_matched_set": int(((df["analysis_set"] == "comparison") & df["matched_set_id"].notna()).sum()) if "analysis_set" in df.columns and "matched_set_id" in df.columns else 0,
+            "wontfix_rows_with_matched_set": int(((df["analysis_set"] == "wontfix") & df[fe_col].notna()).sum()) if "analysis_set" in df.columns and fe_col in df.columns else 0,
+            "comparison_rows_with_matched_set": int(((df["analysis_set"] == "comparison") & df[fe_col].notna()).sum()) if "analysis_set" in df.columns and fe_col in df.columns else 0,
         })
     return pd.DataFrame(rows)
-
 
 def build_matched_design_summary(
     datasets: dict[str, pd.DataFrame],
     analysis_qa: pd.DataFrame,
     comparison_qa: pd.DataFrame,
+    validation_summary: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    # Prefer analysis QA values because they reflect downstream dataset attachment.
     rows = []
     def add(metric: str, value: Any, note: str = "") -> None:
         rows.append({"metric": metric, "value": value, "note": note})
 
-    population_df = next((df for df in datasets.values() if df is not None and not df.empty), pd.DataFrame())
-    if not population_df.empty:
-        controls_per_set = (
-            population_df[population_df["matched_set_id"].notna()]
-            .groupby("matched_set_id")["analysis_set"]
-            .apply(lambda s: int((s == "comparison").sum()))
-        )
-        distribution = controls_per_set.value_counts().sort_index().to_dict()
-    else:
-        distribution = {}
+    def validation_value(metric: str, default: Any = None) -> Any:
+        return get_metric_value(validation_summary if validation_summary is not None else pd.DataFrame(), metric, default)
+
+    max_controls = get_metric_value(comparison_qa, "max_controls_per_wontfix", get_metric_value(analysis_qa, "max_controls_per_wontfix", 3))
+    derived_distribution = validation_value("derived_controls_per_wontfix_distribution_json", None)
+    derived_unmatched = validation_value("derived_unmatched_wontfix_count", None)
+    derived_valid_sets = validation_value("derived_valid_matched_sets_for_fe", None)
+    derived_rows_usable = validation_value("derived_rows_usable_for_matched_set_fe", None)
+    derived_max_controls = validation_value("derived_max_observed_controls_per_wontfix", max_controls)
+
+    qa_unmatched = get_metric_value(comparison_qa, "wontfix_issues_with_zero_matches", get_metric_value(analysis_qa, "wontfix_rows_missing_matched_set_id", None))
+    qa_distribution = get_metric_value(analysis_qa, "controls_per_wontfix_distribution_json", get_metric_value(comparison_qa, "controls_per_wontfix_distribution_json", None))
 
     add("script_version", SCRIPT_VERSION)
-    add("matching_unit", "WONTFIX issue / matched_set_id", "Each set contains one WONTFIX issue and up to N non-WONTFIX controls.")
-    add("matching_ratio", "1:N, up to 3 controls per WONTFIX", "Actual ratio is reported by controls_per_wontfix_distribution_json.")
-    add("max_controls_per_wontfix", get_metric_value(comparison_qa, "max_controls_per_wontfix", get_metric_value(analysis_qa, "max_controls_per_wontfix", 3)))
-    add("same_repository_only", "yes", "Comparison-set QA should show zero cross-repo pairs/sets.")
+    add("matching_unit", "WONTFIX issue / repo-aware matched_set_fe_id", "matched_set_fe_id is repo_full_name || matched_set_id.")
+    add("matching_ratio", "1:N, up to 3 controls per WONTFIX", "Actual ratio is reported by derived_controls_per_wontfix_distribution_json.")
+    add("max_controls_per_wontfix", max_controls)
+    add("derived_max_observed_controls_per_wontfix", derived_max_controls, "Derived from the analysis dataset using repo-aware matched_set_fe_id.")
+    add("same_repository_only", "yes", "Comparison-set QA should show zero cross-repo pairs/sets; FE IDs include repo as a safety guard.")
     add("time_window_days", get_metric_value(comparison_qa, "time_window_days", get_metric_value(analysis_qa, "time_window_days", 180)))
     add("issue_type_definition", "broad issue type inferred from GitHub label names", "Uses label_names_json and label_payload_json; does not use author_type/type scalar columns.")
     add("issue_type_source", get_metric_value(comparison_qa, "issue_type_source", get_metric_value(analysis_qa, "issue_type_source", "label_columns_only")))
     add("matching_algorithm", "greedy score-based matching within repo/time/type constraints", "Ranks candidates by creation-time distance, comment-count difference, issue-type overlap, linked-PR status, and comparison bucket.")
     add("controls_selected_without_replacement", "yes", "QA should show no reused comparison issues.")
-    add("unmatched_wontfix_count", get_metric_value(comparison_qa, "wontfix_issues_with_zero_matches", get_metric_value(analysis_qa, "wontfix_rows_missing_matched_set_id", None)))
-    add("controls_per_wontfix_distribution_json", get_metric_value(analysis_qa, "controls_per_wontfix_distribution_json", get_metric_value(comparison_qa, "controls_per_wontfix_distribution_json", json.dumps(distribution))))
-    add("matched_sets_valid_for_fe", get_metric_value(analysis_qa, "matched_sets_valid_for_fe", None))
-    add("analysis_rows_usable_for_matched_set_fe", get_metric_value(analysis_qa, "analysis_rows_usable_for_matched_set_fe", None))
+    add("unmatched_wontfix_count", derived_unmatched if derived_unmatched is not None else qa_unmatched, "Derived from current analysis dataset when available.")
+    add("controls_per_wontfix_distribution_json", derived_distribution if derived_distribution is not None else qa_distribution, "Derived from repo-aware matched_set_fe_id when available.")
+    add("matched_sets_valid_for_fe", derived_valid_sets if derived_valid_sets is not None else get_metric_value(analysis_qa, "matched_sets_valid_for_fe", None))
+    add("analysis_rows_usable_for_matched_set_fe", derived_rows_usable if derived_rows_usable is not None else get_metric_value(analysis_qa, "analysis_rows_usable_for_matched_set_fe", None))
     add("cross_repo_sets", get_metric_value(analysis_qa, "matched_sets_cross_repo_in_analysis", get_metric_value(comparison_qa, "pair_rows_cross_repo", None)))
     add("id_number_conflict_rows", get_metric_value(analysis_qa, "matched_set_issue_id_number_conflict_rows", None))
+    add("design_validation_status", validation_value("design_validation_status", "not_run"), validation_value("design_validation_status_note", ""))
+    add("design_sets_with_more_than_max_controls", validation_value("design_sets_with_more_than_max_controls", None))
+    add("design_sets_without_exactly_one_wontfix", validation_value("design_sets_without_exactly_one_wontfix", None))
+    add("design_sets_without_comparison", validation_value("design_sets_without_comparison", None))
+    add("raw_matched_set_ids_reused_across_repos", validation_value("raw_matched_set_ids_reused_across_repos", None), "Informational only; models use repo-aware matched_set_fe_id.")
+    add("qa_unmatched_wontfix_count", qa_unmatched, "Value from prior QA summaries; may be stale if not from current run.")
+    add("qa_controls_per_wontfix_distribution_json", qa_distribution, "Value from prior QA summaries; may be stale if not from current run.")
+    add("qa_unmatched_wontfix_mismatch_flag", int(str(qa_unmatched) != str(derived_unmatched)) if qa_unmatched is not None and derived_unmatched is not None else None)
+    add("qa_controls_distribution_mismatch_flag", int(str(qa_distribution) != str(derived_distribution)) if qa_distribution is not None and derived_distribution is not None else None)
     add("run_timestamp_utc", datetime.now(timezone.utc).isoformat())
-    return pd.DataFrame(rows)
 
+    # Append detailed validation metrics too, preserving single key-value table.
+    if validation_summary is not None and not validation_summary.empty:
+        existing = {row["metric"] for row in rows}
+        for row in validation_summary.to_dict(orient="records"):
+            metric = row.get("metric")
+            if metric not in existing:
+                rows.append(row)
+                existing.add(metric)
+    return pd.DataFrame(rows)
 
 def render_design_summary_md(design_df: pd.DataFrame) -> str:
     lookup = {row["metric"]: row["value"] for row in design_df.to_dict(orient="records")}
+    validation_status = lookup.get("design_validation_status", "")
+    warnings_line = ""
+    if validation_status and str(validation_status).lower() not in {"ok", "none", "nan"}:
+        warnings_line = f"- **Design validation status:** {validation_status}\n"
     lines = [
         "# Matched comparison design summary",
         "",
         f"- **Matching unit:** {lookup.get('matching_unit', '')}",
         f"- **Matching ratio:** {lookup.get('matching_ratio', '')}",
         f"- **Maximum controls per WONTFIX:** {lookup.get('max_controls_per_wontfix', '')}",
+        f"- **Observed maximum controls per WONTFIX:** {lookup.get('derived_max_observed_controls_per_wontfix', '')}",
         f"- **Same-repository matching:** {lookup.get('same_repository_only', '')}",
         f"- **Creation-time window:** ±{lookup.get('time_window_days', '')} days",
         f"- **Category/type definition:** {lookup.get('issue_type_definition', '')}",
@@ -494,18 +733,18 @@ def render_design_summary_md(design_df: pd.DataFrame) -> str:
         f"- **Controls-per-WONTFIX distribution:** `{lookup.get('controls_per_wontfix_distribution_json', '')}`",
         f"- **Valid matched sets for FE:** {lookup.get('matched_sets_valid_for_fe', '')}",
         f"- **Rows usable for matched-set FE:** {lookup.get('analysis_rows_usable_for_matched_set_fe', '')}",
+        f"- **Raw matched-set IDs reused across repos:** {lookup.get('raw_matched_set_ids_reused_across_repos', '')}",
+    ]
+    if warnings_line:
+        lines.append(warnings_line.strip())
+    lines.extend([
         "",
-        "Primary statistical model: `outcome ~ WONTFIX + C(matched_set_id)`, with standard errors clustered by `matched_set_id`.",
+        "Primary statistical model: `outcome ~ WONTFIX + C(matched_set_fe_id)`, with standard errors clustered by `matched_set_fe_id`.",
+        "`matched_set_fe_id` is defined as `repo_full_name || matched_set_id`, so raw matched-set IDs reused across repositories are not pooled.",
         "Repo fixed-effect models are reported as coarser robustness checks corresponding to the original analysis tier.",
         "",
-    ]
+    ])
     return "\n".join(lines)
-
-
-# -----------------------------------------------------------------------------
-# Modeling helpers
-# -----------------------------------------------------------------------------
-
 
 def apply_denominator_filter(df: pd.DataFrame, filter_expr: str | None) -> tuple[pd.DataFrame, str | None]:
     if not filter_expr:
@@ -530,13 +769,13 @@ def apply_denominator_filter(df: pd.DataFrame, filter_expr: str | None) -> tuple
 def valid_matched_set_ids(df: pd.DataFrame) -> set[str]:
     if df.empty:
         return set()
-    grouped = df.groupby("matched_set_id", dropna=True)["analysis_set"].agg(
+    set_col = "matched_set_fe_id" if "matched_set_fe_id" in df.columns else "matched_set_id"
+    grouped = df.groupby(set_col, dropna=True)["analysis_set"].agg(
         has_wontfix=lambda s: bool((s == "wontfix").any()),
         has_comparison=lambda s: bool((s == "comparison").any()),
     )
     valid = grouped[grouped["has_wontfix"] & grouped["has_comparison"]]
     return set(valid.index.astype(str))
-
 
 def prepare_model_data(
     df: pd.DataFrame,
@@ -580,8 +819,8 @@ def prepare_model_data(
     if spec.outcome not in base.columns:
         readiness.update(status="missing_outcome", skip_reason="outcome_column_missing")
         return None, readiness
-    if "matched_set_id" not in base.columns:
-        readiness.update(status="missing_matched_set_id", skip_reason="matched_set_id_column_missing")
+    if "matched_set_fe_id" not in base.columns:
+        readiness.update(status="missing_matched_set_fe_id", skip_reason="matched_set_fe_id_column_missing")
         return None, readiness
     if "analysis_set" not in base.columns or "is_wontfix" not in base.columns:
         readiness.update(status="missing_analysis_set", skip_reason="analysis_set_or_is_wontfix_missing")
@@ -607,18 +846,18 @@ def prepare_model_data(
 
     model_df = denom_df[denom_df["_outcome"].notna()].copy()
     readiness["rows_nonmissing_outcome"] = int(len(model_df))
-    model_df = model_df[model_df["matched_set_id"].notna()].copy()
+    model_df = model_df[model_df["matched_set_fe_id"].notna()].copy()
     readiness["rows_with_matched_set"] = int(len(model_df))
-    readiness["matched_sets_before_filter"] = int(model_df["matched_set_id"].nunique()) if not model_df.empty else 0
+    readiness["matched_sets_before_filter"] = int(model_df["matched_set_fe_id"].nunique()) if not model_df.empty else 0
 
     if model_df.empty:
         readiness.update(status="no_nonmissing_matched_rows", skip_reason="no_rows_with_outcome_and_matched_set")
         return None, readiness
 
     valid_ids = valid_matched_set_ids(model_df)
-    model_df = model_df[model_df["matched_set_id"].astype(str).isin(valid_ids)].copy()
+    model_df = model_df[model_df["matched_set_fe_id"].astype(str).isin(valid_ids)].copy()
     readiness["rows_after_valid_set_filter"] = int(len(model_df))
-    readiness["matched_sets_after_filter"] = int(model_df["matched_set_id"].nunique()) if not model_df.empty else 0
+    readiness["matched_sets_after_filter"] = int(model_df["matched_set_fe_id"].nunique()) if not model_df.empty else 0
     readiness["n_wontfix"] = int((model_df["analysis_set"] == "wontfix").sum()) if not model_df.empty else 0
     readiness["n_comparison"] = int((model_df["analysis_set"] == "comparison").sum()) if not model_df.empty else 0
 
@@ -648,6 +887,7 @@ def prepare_model_data(
         return None, readiness
 
     model_df["matched_set_id"] = model_df["matched_set_id"].astype(str)
+    model_df["matched_set_fe_id"] = model_df["matched_set_fe_id"].astype(str)
     model_df["repo_full_name"] = model_df["repo_full_name"].astype(str)
     return model_df, readiness
 
@@ -674,12 +914,12 @@ def compute_descriptive_effects(model_df: pd.DataFrame, spec: OutcomeSpec) -> di
     standardized = raw_diff / psd if psd and np.isfinite(psd) and psd != 0 else np.nan
 
     set_rows = []
-    for _, sub in model_df.groupby("matched_set_id", dropna=True):
+    for _, sub in model_df.groupby("matched_set_fe_id", dropna=True):
         sw = sub[sub["analysis_set"] == "wontfix"]["_outcome"].astype(float)
         sc = sub[sub["analysis_set"] == "comparison"]["_outcome"].astype(float)
         if len(sw) and len(sc):
             set_rows.append({
-                "matched_set_id": sub["matched_set_id"].iloc[0],
+                "matched_set_fe_id": sub["matched_set_fe_id"].iloc[0],
                 "w_mean": float(sw.mean()),
                 "c_mean": float(sc.mean()),
                 "diff": float(sw.mean() - sc.mean()),
@@ -740,7 +980,7 @@ def extract_model_result(
         "model_status": "ok",
         "error_message": "",
         "n_issues": int(len(model_df)),
-        "n_matched_sets": int(model_df["matched_set_id"].nunique()) if "matched_set_id" in model_df.columns else np.nan,
+        "n_matched_sets": int(model_df["matched_set_fe_id"].nunique()) if "matched_set_fe_id" in model_df.columns else np.nan,
         "n_repos": int(model_df["repo_full_name"].nunique()) if "repo_full_name" in model_df.columns else np.nan,
         "n_wontfix": int((model_df["analysis_set"] == "wontfix").sum()),
         "n_comparison": int((model_df["analysis_set"] == "comparison").sum()),
@@ -777,7 +1017,7 @@ def failed_result_row(spec: OutcomeSpec, model_type: str, covariance: str, statu
         "model_status": status,
         "error_message": error,
         "n_issues": int(len(model_df)) if model_df is not None else 0,
-        "n_matched_sets": int(model_df["matched_set_id"].nunique()) if model_df is not None and "matched_set_id" in model_df.columns else 0,
+        "n_matched_sets": int(model_df["matched_set_fe_id"].nunique()) if model_df is not None and "matched_set_fe_id" in model_df.columns else 0,
         "n_repos": int(model_df["repo_full_name"].nunique()) if model_df is not None and "repo_full_name" in model_df.columns else 0,
         "n_wontfix": int((model_df["analysis_set"] == "wontfix").sum()) if model_df is not None and "analysis_set" in model_df.columns else 0,
         "n_comparison": int((model_df["analysis_set"] == "comparison").sum()) if model_df is not None and "analysis_set" in model_df.columns else 0,
@@ -811,12 +1051,12 @@ def failed_result_row(spec: OutcomeSpec, model_type: str, covariance: str, statu
 
 def fit_matched_set_fe(model_df: pd.DataFrame, spec: OutcomeSpec) -> dict[str, Any]:
     try:
-        formula = "_outcome ~ is_wontfix + C(matched_set_id)"
+        formula = "_outcome ~ is_wontfix + C(matched_set_fe_id)"
         fit = fit_ols_formula(
             model_df,
             formula=formula,
             cov_type="cluster",
-            cov_kwds={"groups": model_df["matched_set_id"]},
+            cov_kwds={"groups": model_df["matched_set_fe_id"]},
         )
         return extract_model_result(fit, model_df, spec, model_type="matched_set_fe", covariance="cluster_matched_set")
     except Exception as exc:
@@ -1003,8 +1243,10 @@ def plot_matched_sets_retained(readiness_df: pd.DataFrame, path: Path, dpi: int)
     df["plot_label"] = df["family"].astype(str) + ": " + df["outcome_label"].astype(str)
     df = df.sort_values("matched_sets_after_filter", ascending=True).tail(35)
     fig_height = max(6, 0.26 * len(df))
+    labels = df["plot_label"].astype(str).tolist()
+    values = pd.to_numeric(df["matched_sets_after_filter"], errors="coerce").to_numpy(dtype=float)
     plt.figure(figsize=(11, fig_height))
-    plt.barh(df["plot_label"], pd.to_numeric(df["matched_sets_after_filter"], errors="coerce"))
+    plt.barh(labels, values)
     plt.xlabel("Matched sets retained")
     plt.title("Matched sets retained after outcome-specific filtering")
     plt.tight_layout()
@@ -1063,22 +1305,25 @@ def plot_ms_vs_repo(compare_df: pd.DataFrame, path: Path, dpi: int) -> None:
     if compare_df.empty:
         return
     df = compare_df.copy()
-    x = pd.to_numeric(df.get("coef_wontfix_matched_set_fe"), errors="coerce")
-    y = pd.to_numeric(df.get("coef_wontfix_repo_fe"), errors="coerce")
-    valid = x.notna() & y.notna()
+    x_arr = pd.to_numeric(df.get("coef_wontfix_matched_set_fe"), errors="coerce").to_numpy(dtype=float)
+    y_arr = pd.to_numeric(df.get("coef_wontfix_repo_fe"), errors="coerce").to_numpy(dtype=float)
+    labels_all = df.get("outcome_label", pd.Series([""] * len(df))).astype(str).tolist()
+    valid = np.isfinite(x_arr) & np.isfinite(y_arr)
     if valid.sum() < 2:
         return
-    x = x[valid]
-    y = y[valid]
-    labels = df.loc[valid, "outcome_label"].astype(str)
+    x = x_arr[valid]
+    y = y_arr[valid]
+    labels = [label for label, keep in zip(labels_all, valid) if keep]
     plt.figure(figsize=(8, 7))
     plt.scatter(x, y)
-    lo = float(min(x.min(), y.min()))
-    hi = float(max(x.max(), y.max()))
+    lo = float(min(np.min(x), np.min(y)))
+    hi = float(max(np.max(x), np.max(y)))
     if np.isfinite(lo) and np.isfinite(hi) and lo != hi:
         plt.plot([lo, hi], [lo, hi], linewidth=1)
+    x_threshold = np.quantile(np.abs(x), 0.85)
+    y_threshold = np.quantile(np.abs(y), 0.85)
     for xv, yv, label in zip(x, y, labels):
-        if abs(xv) >= x.abs().quantile(0.85) or abs(yv) >= y.abs().quantile(0.85):
+        if abs(xv) >= x_threshold or abs(yv) >= y_threshold:
             plt.annotate(label[:30], (xv, yv), fontsize=7)
     plt.xlabel("Matched-set FE coefficient")
     plt.ylabel("Repo-FE robustness coefficient")
@@ -1087,12 +1332,6 @@ def plot_ms_vs_repo(compare_df: pd.DataFrame, path: Path, dpi: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(path, dpi=dpi, bbox_inches="tight")
     plt.close()
-
-
-# -----------------------------------------------------------------------------
-# Markdown report
-# -----------------------------------------------------------------------------
-
 
 def render_report(
     design_md: str,
@@ -1120,11 +1359,11 @@ def render_report(
         "",
         "## Model specification",
         "",
-        "Primary model: `outcome ~ WONTFIX + C(matched_set_id)`, with standard errors clustered by matched set.",
+        "Primary model: `outcome ~ WONTFIX + C(matched_set_fe_id)`, with standard errors clustered by repo-aware matched set.",
         "",
         "Robustness model: `outcome ~ WONTFIX + C(repo_full_name)`, with HC3 robust standard errors by default. This corresponds to the original repo-aware analysis tier.",
         "",
-        "Outcome-specific valid matched sets are recomputed after applying denominator filters and dropping missing outcome rows.",
+        "Outcome-specific valid matched sets are recomputed after applying denominator filters and dropping missing outcome rows. The primary model uses `matched_set_fe_id = repo_full_name || matched_set_id`.",
         "",
         "## Dataset readiness",
         "",
@@ -1159,7 +1398,7 @@ def render_report(
         "## Limitations and interpretation guardrails",
         "",
         "- Matched-set FE estimates are associational, not causal.",
-        "- Repo-level differences are absorbed by matched-set FE because matched sets are same-repository.",
+        "- Repo-level differences are absorbed by matched-set FE because matched sets are same-repository; `matched_set_fe_id` includes `repo_full_name` to prevent raw-ID collisions.",
         "- Repo-FE robustness is a coarser replication of the original analysis, not the primary design.",
         "- File-level ownership results are secondary because file/commit evidence coverage can be affected by WONTFIX status.",
         "- Outcome-specific missingness can reduce the number of usable matched sets; inspect `model_readiness_by_outcome.csv` before interpreting coefficients.",
@@ -1247,7 +1486,16 @@ def main() -> None:
     comparison_qa = read_table(args.comparison_qa, required=False)
 
     dataset_readiness = build_dataset_readiness(datasets)
-    design_summary = build_matched_design_summary(datasets, analysis_qa, comparison_qa)
+    max_controls_for_validation = get_metric_value(comparison_qa, "max_controls_per_wontfix", get_metric_value(analysis_qa, "max_controls_per_wontfix", 3))
+    try:
+        max_controls_for_validation = int(max_controls_for_validation)
+    except Exception:
+        max_controls_for_validation = 3
+    matched_set_validation_by_set, matched_set_validation_summary = build_matched_set_design_validation(
+        datasets,
+        max_controls_per_wontfix=max_controls_for_validation,
+    )
+    design_summary = build_matched_design_summary(datasets, analysis_qa, comparison_qa, matched_set_validation_summary)
     design_md = render_design_summary_md(design_summary)
 
     specs = build_outcome_specs()
@@ -1257,6 +1505,11 @@ def main() -> None:
 
     write_csv(design_summary, out_dir / "matched_design_summary.csv")
     write_markdown(design_md, out_dir / "matched_design_summary.md")
+    write_csv(matched_set_validation_summary, out_dir / "matched_set_design_validation_summary.csv")
+    write_csv(matched_set_validation_summary, qa_dir / "matched_set_design_validation_summary.csv")
+    if not matched_set_validation_by_set.empty:
+        write_csv(matched_set_validation_by_set, out_dir / "matched_set_design_validation_by_set.csv")
+        write_csv(matched_set_validation_by_set, qa_dir / "matched_set_design_validation_by_set.csv")
     write_csv(dataset_readiness, out_dir / "model_readiness_by_dataset.csv")
     write_csv(outcome_readiness, out_dir / "model_readiness_by_outcome.csv")
     write_csv(dataset_readiness, qa_dir / "model_readiness_by_dataset.csv")
@@ -1290,6 +1543,8 @@ def main() -> None:
     failed = int((msfe_results["model_status"] != "ok").sum()) if not msfe_results.empty else 0
     print(f"Primary matched-set FE models estimated successfully: {ok_primary}")
     print(f"Matched-set FE rows skipped/failed: {failed}")
+    validation_status = get_metric_value(matched_set_validation_summary, "design_validation_status", "not_run")
+    print(f"Matched-set design validation status: {validation_status}")
     print(f"Wrote report: {out_dir / 'matched_set_fe_report.md'}")
 
 
