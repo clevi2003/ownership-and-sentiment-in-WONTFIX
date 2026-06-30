@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 import pandas as pd
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -18,7 +17,6 @@ def load_and_combine_issues():
     wontfix_df = pd.read_parquet(WONTFIX_ISSUES_PATH)
     comp_df = pd.read_parquet(COMPARISON_ISSUES_PATH)
     
-
     wontfix_df["analysis_set"] = "wontfix"
     comp_df["analysis_set"] = "comparison"
     
@@ -26,7 +24,7 @@ def load_and_combine_issues():
     
     repo_col = "__repo" if "__repo" in combined.columns else "repo_full_name"
     num_col = "__issue_number" if "__issue_number" in combined.columns else "issue_number"
-    author_col = "author_login" # Standard GitHub API field for issue author
+    author_col = "author_login"
     
     return combined[[repo_col, num_col, author_col, "analysis_set"]].rename(
         columns={
